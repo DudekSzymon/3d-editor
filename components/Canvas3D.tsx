@@ -86,7 +86,9 @@ function SceneContent({
       />
 
       <Axes />
-      {backgroundImage && <BackgroundPlane data={backgroundImage} />}
+      {backgroundImage && (
+        <BackgroundPlane data={backgroundImage} shapes={shapes} />
+      )}
 
       <ShapeRenderer shapes={shapes} hoveredShapeId={hoveredShapeId} />
 
