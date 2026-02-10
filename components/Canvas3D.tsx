@@ -1,131 +1,53 @@
 "use client";
 
-import { Canvas, useLoader, useThree } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import {
   OrbitControls,
   Grid,
   GizmoHelper,
   GizmoViewcube,
-  Line,
   PerspectiveCamera,
 } from "@react-three/drei";
-import { useRef, useState, useEffect, useCallback } from "react";
-import * as THREE from "three";
-import ResetViewButton from "./UI/ResetViewButton";
-import ImportImageButton from "./UI/ImportImageButton";
+import { useRef, useState, useEffect } from "react";
+
+// Importy UI
+import Toolbar from "./UI/Toolbar";
+import ImageInfoPanel from "./UI/ImageInfoPanel";
 import CanvasScaleModal from "./UI/CanvasScaleModal";
-import ImageInfoPanel, { ImageInfoPanelData } from "./UI/ImageInfoPanel";
 
-interface BackgroundImageData extends ImageInfoPanelData {
-  url: string;
-}
+// Importy z folderu editor
+import Axes from "./Editor/Axes";
+import BackgroundPlane from "./Editor/BackgroundPlane";
+import ShapeRenderer from "./Editor/ShapeRenderer";
+import InteractionManager from "./Editor/InteractionManager";
+import { EditorMode, DrawnShape, BackgroundImageData } from "./Editor/types";
 
-function SketchUpAxes() {
-  const length = 5000;
-  const mainLineWidth = 6;
-  const dashedLineWidth = 3;
-
-  const dashProps = {
-    dashed: true,
-    dashScale: 1,
-    dashSize: 60,
-    gapSize: 30,
-  };
-
-  return (
-    <group>
-      {/* OŚ X (Czerwona) */}
-      <Line
-        points={[
-          [0, 0, 0],
-          [length, 0, 0],
-        ]}
-        color="#ff0000"
-        lineWidth={mainLineWidth}
-      />
-      <group rotation={[0, Math.PI, 0]}>
-        <Line
-          points={[
-            [0, 0, 0],
-            [length, 0, 0],
-          ]}
-          color="#ff0000"
-          lineWidth={dashedLineWidth}
-          {...dashProps}
-        />
-      </group>
-
-      {/* OŚ Y (Zielona) */}
-      <Line
-        points={[
-          [0, 0, 0],
-          [0, 0, -length],
-        ]}
-        color="#00ff00"
-        lineWidth={mainLineWidth}
-      />
-      <Line
-        points={[
-          [0, 0, 0],
-          [0, 0, length],
-        ]}
-        color="#00ff00"
-        lineWidth={dashedLineWidth}
-        {...dashProps}
-      />
-
-      {/* OŚ Z (Niebieska) */}
-      <Line
-        points={[
-          [0, 0, 0],
-          [0, length, 0],
-        ]}
-        color="#0000ff"
-        lineWidth={mainLineWidth}
-      />
-      <group rotation={[Math.PI, 0, 0]}>
-        <Line
-          points={[
-            [0, 0, 0],
-            [0, length, 0],
-          ]}
-          color="#0000ff"
-          lineWidth={dashedLineWidth}
-          {...dashProps}
-        />
-      </group>
-    </group>
-  );
-}
-
-// --- Komponent tła (Blueprint) ---
-function BackgroundImage({ data }: { data: BackgroundImageData }) {
-  const texture = useLoader(THREE.TextureLoader, data.url);
-
-  return (
-    <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.2, 0]}>
-      <planeGeometry args={[data.width, data.height]} />
-      <meshBasicMaterial
-        map={texture}
-        transparent
-        opacity={0.7}
-        side={THREE.DoubleSide}
-      />
-    </mesh>
-  );
-}
-
+// --- KOMPONENT SCENY ---
 function SceneContent({
   onResetReady,
   backgroundImage,
+  mode,
+  shapes,
+  onShapeAdd,
+  onShapeUpdate, // NOWE
+  onCalibrateConfirm,
+  hoveredShapeId, // NOWE
+  setHoveredShapeId, // NOWE
 }: {
   onResetReady: (fn: () => void) => void;
   backgroundImage: BackgroundImageData | null;
+  mode: EditorMode;
+  shapes: DrawnShape[];
+  onShapeAdd: (s: DrawnShape) => void;
+  onShapeUpdate: (id: string, u: Partial<DrawnShape>) => void;
+  onCalibrateConfirm: (dist: number) => void;
+  hoveredShapeId: string | null;
+  setHoveredShapeId: (id: string | null) => void;
 }) {
   const { camera, controls } = useThree();
 
   useEffect(() => {
-    const resetView = () => {
+    onResetReady(() => {
       camera.position.set(100, 150, 100);
       if (controls) {
         // @ts-ignore
@@ -133,14 +55,12 @@ function SceneContent({
         // @ts-ignore
         controls.update();
       }
-    };
-    onResetReady(resetView);
+    });
   }, [controls, camera, onResetReady]);
 
   return (
     <>
       <color attach="background" args={["#ffffff"]} />
-
       <PerspectiveCamera
         makeDefault
         position={[100, 150, 100]}
@@ -154,25 +74,33 @@ function SceneContent({
       <Grid
         infiniteGrid
         cellSize={10}
-        cellColor="#e5e5e5"
         sectionSize={100}
-        sectionColor="#d1d1d1"
         fadeDistance={2000}
-        fadeStrength={1}
-        cellThickness={0.5}
-        sectionThickness={1}
+        cellColor="#e5e5e5"
+        sectionColor="#d1d1d1"
         position={[0, -0.01, 0]}
       />
 
-      <SketchUpAxes />
+      {/* Komponenty Edytora */}
+      <Axes />
+      {backgroundImage && <BackgroundPlane data={backgroundImage} />}
 
-      {backgroundImage && <BackgroundImage data={backgroundImage} />}
+      {/* Przekazujemy hoveredShapeId do renderera, żeby wiedział co podświetlić */}
+      <ShapeRenderer shapes={shapes} hoveredShapeId={hoveredShapeId} />
+
+      <InteractionManager
+        mode={mode}
+        shapes={shapes}
+        onShapeAdd={onShapeAdd}
+        onShapeUpdate={onShapeUpdate}
+        onCalibrate={onCalibrateConfirm}
+        setHoveredShapeId={setHoveredShapeId}
+      />
 
       <OrbitControls
         makeDefault
+        enabled={mode === "VIEW"} // Obracanie tylko w trybie widoku
         zoomToCursor={true}
-        enableDamping={true}
-        dampingFactor={0.1}
         maxPolarAngle={Math.PI / 2}
       />
 
@@ -188,9 +116,17 @@ function SceneContent({
   );
 }
 
-// --- Główny Komponent ---
+// --- GŁÓWNY KOMPONENT ---
 export default function Canvas3D() {
   const resetFunctionRef = useRef<(() => void) | null>(null);
+
+  const [mode, setMode] = useState<EditorMode>("VIEW");
+  const [backgroundImage, setBackgroundImage] =
+    useState<BackgroundImageData | null>(null);
+  const [shapes, setShapes] = useState<DrawnShape[]>([]);
+
+  // Stan podświetlenia figury (hover)
+  const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
 
   const [tempImage, setTempImage] = useState<{
     file: File;
@@ -199,15 +135,19 @@ export default function Canvas3D() {
     height: number;
   } | null>(null);
   const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
-  const [backgroundImage, setBackgroundImage] =
-    useState<BackgroundImageData | null>(null);
 
-  const handleResetReady = useCallback((fn: () => void) => {
-    resetFunctionRef.current = fn;
-  }, []);
+  const handleReset = () => resetFunctionRef.current?.();
 
-  const handleReset = () => {
-    if (resetFunctionRef.current) resetFunctionRef.current();
+  // Dodawanie kształtu
+  const handleShapeAdd = (shape: DrawnShape) => {
+    setShapes((prev) => [...prev, shape]);
+  };
+
+  // Aktualizacja kształtu (np. zmiana wysokości)
+  const handleShapeUpdate = (id: string, updates: Partial<DrawnShape>) => {
+    setShapes((prev) =>
+      prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+    );
   };
 
   const handleImageSelect = (file: File) => {
@@ -228,7 +168,6 @@ export default function Canvas3D() {
   const handleScaleConfirm = (pixels: number, realWorldUnits: number) => {
     if (!tempImage) return;
     const scaleFactor = realWorldUnits / pixels;
-
     setBackgroundImage({
       url: tempImage.url,
       width: tempImage.width * scaleFactor,
@@ -237,9 +176,9 @@ export default function Canvas3D() {
       originalHeight: tempImage.height,
       scale: scaleFactor,
     });
-
     setIsScaleModalOpen(false);
     setTempImage(null);
+    setMode("VIEW");
   };
 
   const handleModalClose = () => {
@@ -251,16 +190,29 @@ export default function Canvas3D() {
   };
 
   return (
-    <div className="w-screen h-screen bg-white relative">
-      <Canvas gl={{ antialias: true, preserveDrawingBuffer: true }}>
+    <div className="w-screen h-screen bg-white relative select-none">
+      <Toolbar
+        currentMode={mode}
+        setMode={setMode}
+        onResetView={handleReset}
+        onImageSelect={handleImageSelect}
+      />
+
+      <Canvas gl={{ antialias: true }}>
         <SceneContent
-          onResetReady={handleResetReady}
+          onResetReady={(fn) => {
+            resetFunctionRef.current = fn;
+          }}
           backgroundImage={backgroundImage}
+          mode={mode}
+          shapes={shapes}
+          onShapeAdd={handleShapeAdd}
+          onShapeUpdate={handleShapeUpdate} // Przekazujemy funkcję update
+          onCalibrateConfirm={() => {}} // (Opcjonalne, jeśli używamy modala)
+          hoveredShapeId={hoveredShapeId}
+          setHoveredShapeId={setHoveredShapeId}
         />
       </Canvas>
-
-      <ResetViewButton onReset={handleReset} />
-      <ImportImageButton onImageSelect={handleImageSelect} />
 
       {backgroundImage && <ImageInfoPanel data={backgroundImage} />}
 
@@ -269,6 +221,14 @@ export default function Canvas3D() {
         onClose={handleModalClose}
         onConfirm={handleScaleConfirm}
       />
+
+      {mode !== "VIEW" && (
+        <div className="absolute top-4 left-24 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded shadow-lg z-20 text-sm font-bold animate-pulse">
+          {mode === "DRAW_RECT" && "RYSOWANIE: Zaznacz narożniki"}
+          {mode === "EXTRUDE" &&
+            "WYCIĄGANIE: Kliknij figurę i pociągnij myszką"}
+        </div>
+      )}
     </div>
   );
 }
