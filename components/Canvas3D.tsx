@@ -9,8 +9,9 @@ import {
   Line,
   PerspectiveCamera,
 } from "@react-three/drei";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import ResetViewButton from "./UI/ResetViewButton";
+import ImportImageButton from "./UI/ImportImageButton";
 
 function SketchUpAxes() {
   const length = 500;
@@ -79,7 +80,6 @@ function SketchUpAxes() {
   );
 }
 
-// Zawartość sceny
 function SceneContent({
   onResetReady,
 }: {
@@ -146,7 +146,6 @@ function SceneContent({
   );
 }
 
-// Główny komponent
 export default function Canvas3D() {
   const resetFunctionRef = useRef<(() => void) | null>(null);
 
@@ -154,6 +153,10 @@ export default function Canvas3D() {
     if (resetFunctionRef.current) {
       resetFunctionRef.current();
     }
+  };
+
+  const handleImageSelect = (file: File) => {
+    console.log("Image selected:", file.name);
   };
 
   return (
@@ -167,6 +170,7 @@ export default function Canvas3D() {
       </Canvas>
 
       <ResetViewButton onReset={handleReset} />
+      <ImportImageButton onImageSelect={handleImageSelect} />
     </div>
   );
 }
