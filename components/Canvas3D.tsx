@@ -10,19 +10,17 @@ import {
 } from "@react-three/drei";
 import { useRef, useState, useEffect } from "react";
 
-// Importy UI
 import Toolbar from "./UI/Toolbar";
 import ImageInfoPanel from "./UI/ImageInfoPanel";
 import CanvasScaleModal from "./UI/CanvasScaleModal";
+import HeightInputPanel from "./UI/HeightInputPanel";
 
-// Importy z folderu editor
 import Axes from "./Editor/Axes";
 import BackgroundPlane from "./Editor/BackgroundPlane";
 import ShapeRenderer from "./Editor/ShapeRenderer";
 import InteractionManager from "./Editor/InteractionManager";
 import { EditorMode, DrawnShape, BackgroundImageData } from "./Editor/types";
 
-// --- KOMPONENT SCENY ---
 function SceneContent({
   onResetReady,
   backgroundImage,
@@ -34,6 +32,8 @@ function SceneContent({
   hoveredShapeId,
   setHoveredShapeId,
   isSnapEnabled,
+  editingShapeId,
+  setEditingShapeId,
 }: {
   onResetReady: (fn: () => void) => void;
   backgroundImage: BackgroundImageData | null;
@@ -45,6 +45,8 @@ function SceneContent({
   hoveredShapeId: string | null;
   setHoveredShapeId: (id: string | null) => void;
   isSnapEnabled: boolean;
+  editingShapeId: string | null;
+  setEditingShapeId: (id: string | null) => void;
 }) {
   const { camera, controls } = useThree();
 
@@ -83,9 +85,10 @@ function SceneContent({
         position={[0, -0.01, 0]}
       />
 
-      {/* Komponenty Edytora */}
       <Axes />
-      {backgroundImage && <BackgroundPlane data={backgroundImage} />}
+      {backgroundImage && (
+        <BackgroundPlane data={backgroundImage} shapes={shapes} />
+      )}
 
       <ShapeRenderer shapes={shapes} hoveredShapeId={hoveredShapeId} />
 
@@ -97,6 +100,8 @@ function SceneContent({
         onCalibrate={onCalibrateConfirm}
         setHoveredShapeId={setHoveredShapeId}
         isSnapEnabled={isSnapEnabled}
+        editingShapeId={editingShapeId}
+        setEditingShapeId={setEditingShapeId}
       />
 
       <OrbitControls
@@ -118,7 +123,6 @@ function SceneContent({
   );
 }
 
-// --- GŁÓWNY KOMPONENT ---
 export default function Canvas3D() {
   const resetFunctionRef = useRef<(() => void) | null>(null);
 
@@ -129,6 +133,7 @@ export default function Canvas3D() {
 
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
+  const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
 
   const [tempImage, setTempImage] = useState<{
     file: File;
@@ -189,6 +194,17 @@ export default function Canvas3D() {
     }
   };
 
+  const handleHeightApply = (height: number, baseY: number) => {
+    if (editingShapeId) {
+      handleShapeUpdate(editingShapeId, { height, baseY });
+      setEditingShapeId(null);
+    }
+  };
+
+  const editingShape = editingShapeId
+    ? shapes.find((s) => s.id === editingShapeId)
+    : null;
+
   return (
     <div className="w-screen h-screen bg-white relative select-none">
       <Toolbar
@@ -214,6 +230,8 @@ export default function Canvas3D() {
           hoveredShapeId={hoveredShapeId}
           setHoveredShapeId={setHoveredShapeId}
           isSnapEnabled={isSnapEnabled}
+          editingShapeId={editingShapeId}
+          setEditingShapeId={setEditingShapeId}
         />
       </Canvas>
 
@@ -225,11 +243,19 @@ export default function Canvas3D() {
         onConfirm={handleScaleConfirm}
       />
 
+      {editingShape && (
+        <HeightInputPanel
+          currentHeight={editingShape.height}
+          currentBaseY={editingShape.baseY || 0}
+          onApply={handleHeightApply}
+          onCancel={() => setEditingShapeId(null)}
+        />
+      )}
+
       {mode !== "VIEW" && (
         <div className="absolute top-4 left-24 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded shadow-lg z-20 text-sm font-bold animate-pulse">
           {mode === "DRAW_RECT" && "RYSOWANIE: Zaznacz narożniki"}
-          {mode === "EXTRUDE" &&
-            "WYCIĄGANIE: Kliknij figurę i pociągnij myszką"}
+          {mode === "EXTRUDE" && "WYCIĄGANIE: Kliknij figurę aby edytować"}
         </div>
       )}
     </div>

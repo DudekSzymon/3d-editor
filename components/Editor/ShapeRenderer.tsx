@@ -27,27 +27,23 @@ export default function ShapeRenderer({
         const centerZ = (z1 + z2) / 2;
 
         const height = shape.height || 0;
+        const baseY = shape.baseY || 0; // NOWE: Pozycja podstawy
         const is3D = Math.abs(height) > 0.01;
         const isNegative = height < 0;
-        const centerY = height / 2;
+        const centerY = baseY + height / 2; // Środek bryły = baseY + połowa wysokości
         const isHovered = hoveredShapeId === shape.id;
 
-        // --- STYLIZACJA: CZYSTA ARCHITEKTURA ---
-
-        // Wypełnienie: Jasny szary (jak papier/model gipsowy)
-        // Przy najechaniu: Lekko ciemniejszy szary
-        const baseColor = "#e5e7eb"; // Tailwind Gray 200
-        const hoverColor = "#cbd5e1"; // Tailwind Slate 300
+        const baseColor = "#e5e7eb";
+        const hoverColor = "#cbd5e1";
         const finalColor = isHovered ? hoverColor : baseColor;
 
-        // Krawędzie: Zawsze czarne, ostre i wyraźne
         const edgeColor = "#000000";
-        const edgeOpacity = 1.0; // Pełna widoczność
+        const edgeOpacity = 1.0;
 
         const materialProps = {
           color: finalColor,
           transparent: !is3D,
-          opacity: is3D ? 1.0 : 0.2, // Płaskie są półprzezroczyste, 3D pełne
+          opacity: is3D ? 1.0 : 0.2,
           side: THREE.DoubleSide,
           roughness: 1.0,
           metalness: 0.0,
@@ -55,11 +51,17 @@ export default function ShapeRenderer({
 
         return (
           <group key={shape.id}>
-            {/* OBRYS PODSTAWY (Na poziomie 0) */}
+            {/* OBRYS PODSTAWY (Na poziomie baseY) */}
             <Line
               points={[
-                ...shape.points.map((p) => new THREE.Vector3(...p)),
-                new THREE.Vector3(...shape.points[0]),
+                ...shape.points.map(
+                  (p) => new THREE.Vector3(p[0], baseY, p[2]),
+                ),
+                new THREE.Vector3(
+                  shape.points[0][0],
+                  baseY,
+                  shape.points[0][2],
+                ),
               ]}
               color="black"
               lineWidth={2}
@@ -70,23 +72,21 @@ export default function ShapeRenderer({
             <mesh position={[centerX, centerY, centerZ]}>
               <boxGeometry args={[width, Math.abs(height) || 0.01, depth]} />
 
-              {/* Ścianki */}
               <meshStandardMaterial attach="material-0" {...materialProps} />
               <meshStandardMaterial attach="material-1" {...materialProps} />
 
-              {/* Góra - ukryta jeśli to dziura (isNegative) */}
               <meshStandardMaterial
                 attach="material-2"
                 {...materialProps}
                 visible={!isNegative}
               />
 
-              {/* Dół, Przód, Tył */}
               <meshStandardMaterial attach="material-3" {...materialProps} />
               <meshStandardMaterial attach="material-4" {...materialProps} />
               <meshStandardMaterial attach="material-5" {...materialProps} />
             </mesh>
 
+            {/* WYRAŹNE CZARNE KRAWĘDZIE 3D */}
             {is3D && (
               <lineSegments position={[centerX, centerY, centerZ]}>
                 <edgesGeometry
