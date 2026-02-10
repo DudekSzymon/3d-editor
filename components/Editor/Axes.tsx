@@ -6,7 +6,7 @@ export default function Axes() {
   const length = 10000;
   const mainLineWidth = 4;
   const dashedLineWidth = 2;
-  const dashProps = { dashed: true, dashScale: 1, dashSize: 60, gapSize: 30 };
+  const dashProps = { dashed: true, dashScale: 1, dashSize: 60, gapSize: 40 };
 
   return (
     <group>
@@ -37,7 +37,7 @@ export default function Axes() {
           [0, 0, 0],
           [0, 0, -length],
         ]}
-        color="#00ff00"
+        color="#228f22"
         lineWidth={mainLineWidth}
       />
       <Line
@@ -45,7 +45,7 @@ export default function Axes() {
           [0, 0, 0],
           [0, 0, length],
         ]}
-        color="#00ff00"
+        color="#228f22"
         lineWidth={dashedLineWidth}
         {...dashProps}
       />

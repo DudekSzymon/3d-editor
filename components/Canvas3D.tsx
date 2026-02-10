@@ -29,10 +29,11 @@ function SceneContent({
   mode,
   shapes,
   onShapeAdd,
-  onShapeUpdate, // NOWE
+  onShapeUpdate,
   onCalibrateConfirm,
-  hoveredShapeId, // NOWE
-  setHoveredShapeId, // NOWE
+  hoveredShapeId,
+  setHoveredShapeId,
+  isSnapEnabled,
 }: {
   onResetReady: (fn: () => void) => void;
   backgroundImage: BackgroundImageData | null;
@@ -43,6 +44,7 @@ function SceneContent({
   onCalibrateConfirm: (dist: number) => void;
   hoveredShapeId: string | null;
   setHoveredShapeId: (id: string | null) => void;
+  isSnapEnabled: boolean;
 }) {
   const { camera, controls } = useThree();
 
@@ -85,7 +87,6 @@ function SceneContent({
       <Axes />
       {backgroundImage && <BackgroundPlane data={backgroundImage} />}
 
-      {/* Przekazujemy hoveredShapeId do renderera, żeby wiedział co podświetlić */}
       <ShapeRenderer shapes={shapes} hoveredShapeId={hoveredShapeId} />
 
       <InteractionManager
@@ -95,11 +96,12 @@ function SceneContent({
         onShapeUpdate={onShapeUpdate}
         onCalibrate={onCalibrateConfirm}
         setHoveredShapeId={setHoveredShapeId}
+        isSnapEnabled={isSnapEnabled}
       />
 
       <OrbitControls
         makeDefault
-        enabled={mode === "VIEW"} // Obracanie tylko w trybie widoku
+        enabled={mode === "VIEW"}
         zoomToCursor={true}
         maxPolarAngle={Math.PI / 2}
       />
@@ -125,8 +127,8 @@ export default function Canvas3D() {
     useState<BackgroundImageData | null>(null);
   const [shapes, setShapes] = useState<DrawnShape[]>([]);
 
-  // Stan podświetlenia figury (hover)
   const [hoveredShapeId, setHoveredShapeId] = useState<string | null>(null);
+  const [isSnapEnabled, setIsSnapEnabled] = useState(true);
 
   const [tempImage, setTempImage] = useState<{
     file: File;
@@ -138,12 +140,10 @@ export default function Canvas3D() {
 
   const handleReset = () => resetFunctionRef.current?.();
 
-  // Dodawanie kształtu
   const handleShapeAdd = (shape: DrawnShape) => {
     setShapes((prev) => [...prev, shape]);
   };
 
-  // Aktualizacja kształtu (np. zmiana wysokości)
   const handleShapeUpdate = (id: string, updates: Partial<DrawnShape>) => {
     setShapes((prev) =>
       prev.map((s) => (s.id === id ? { ...s, ...updates } : s)),
@@ -196,6 +196,8 @@ export default function Canvas3D() {
         setMode={setMode}
         onResetView={handleReset}
         onImageSelect={handleImageSelect}
+        isSnapEnabled={isSnapEnabled}
+        onToggleSnap={() => setIsSnapEnabled(!isSnapEnabled)}
       />
 
       <Canvas gl={{ antialias: true }}>
@@ -207,10 +209,11 @@ export default function Canvas3D() {
           mode={mode}
           shapes={shapes}
           onShapeAdd={handleShapeAdd}
-          onShapeUpdate={handleShapeUpdate} // Przekazujemy funkcję update
-          onCalibrateConfirm={() => {}} // (Opcjonalne, jeśli używamy modala)
+          onShapeUpdate={handleShapeUpdate}
+          onCalibrateConfirm={() => {}}
           hoveredShapeId={hoveredShapeId}
           setHoveredShapeId={setHoveredShapeId}
+          isSnapEnabled={isSnapEnabled}
         />
       </Canvas>
 

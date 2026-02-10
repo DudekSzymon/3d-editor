@@ -5,7 +5,7 @@ import {
   FaVectorSquare,
   FaImage,
   FaCompressArrowsAlt,
-  FaCube, // Ikona dla Extrude
+  FaCube,
 } from "react-icons/fa";
 import { EditorMode } from "../Editor/types";
 
@@ -14,6 +14,8 @@ interface ToolbarProps {
   setMode: (mode: EditorMode) => void;
   onResetView: () => void;
   onImageSelect: (file: File) => void;
+  isSnapEnabled: boolean;
+  onToggleSnap: () => void;
 }
 
 export default function Toolbar({
@@ -21,6 +23,8 @@ export default function Toolbar({
   setMode,
   onResetView,
   onImageSelect,
+  isSnapEnabled,
+  onToggleSnap,
 }: ToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -40,7 +44,7 @@ export default function Toolbar({
     { id: "VIEW", icon: FaMousePointer, label: "Widok" },
     { id: "CALIBRATE", icon: FaRulerCombined, label: "Kalibruj" },
     { id: "DRAW_RECT", icon: FaVectorSquare, label: "Rysuj" },
-    { id: "EXTRUDE", icon: FaCube, label: "Wyciągnij" }, // NOWY PRZYCISK
+    { id: "EXTRUDE", icon: FaCube, label: "Wyciągnij" },
   ] as const;
 
   return (
@@ -64,6 +68,38 @@ export default function Toolbar({
           <span className="text-[9px] font-medium">{tool.label}</span>
         </button>
       ))}
+
+      <div className="w-full h-px bg-gray-200 my-1"></div>
+
+      {/* PRZYCISK SNAP */}
+      <button
+        onClick={onToggleSnap}
+        title={isSnapEnabled ? "Wyłącz Snapowanie" : "Włącz Snapowanie"}
+        className={`
+          flex flex-col items-center justify-center w-12 h-12 rounded transition-all
+          ${
+            isSnapEnabled
+              ? "bg-green-600 text-white shadow-sm"
+              : "text-gray-400 hover:bg-gray-100"
+          }
+        `}
+      >
+        <svg
+          width="18"
+          height="18"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="mb-1"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path d="M3 12h2m14 0h2M12 3v2m0 14v2" />
+        </svg>
+        <span className="text-[9px] font-medium">Snap</span>
+      </button>
 
       <div className="w-full h-px bg-gray-200 my-1"></div>
 

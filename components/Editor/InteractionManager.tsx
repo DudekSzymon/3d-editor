@@ -13,6 +13,7 @@ interface InteractionManagerProps {
   onShapeUpdate: (id: string, updates: Partial<DrawnShape>) => void;
   onCalibrate: (distancePx: number) => void;
   setHoveredShapeId: (id: string | null) => void;
+  isSnapEnabled: boolean;
 }
 
 export default function InteractionManager({
@@ -22,6 +23,7 @@ export default function InteractionManager({
   onShapeUpdate,
   onCalibrate,
   setHoveredShapeId,
+  isSnapEnabled,
 }: InteractionManagerProps) {
   const { camera, raycaster, pointer } = useThree();
 
@@ -47,16 +49,13 @@ export default function InteractionManager({
   );
   const intersectPoint = useMemo(() => new THREE.Vector3(), []);
 
-  // --- NOWA FUNKCJA: Wykrywanie figury 3D pod kursorem ---
   const getHoveredShapeId3D = () => {
     raycaster.setFromCamera(pointer, camera);
 
     let closestDist = Infinity;
     let closestId = null;
 
-    // Iterujemy po wszystkich kształtach i tworzymy dla nich wirtualne pudełka (Bounding Box)
     for (const shape of shapes) {
-      // Znajdź zakres X i Z na podstawie punktów podstawy
       const xVals = shape.points.map((p) => p[0]);
       const zVals = shape.points.map((p) => p[2]);
       const minX = Math.min(...xVals);
@@ -64,25 +63,18 @@ export default function InteractionManager({
       const minZ = Math.min(...zVals);
       const maxZ = Math.max(...zVals);
 
-      // Znajdź zakres Y (Wysokość)
       const h = shape.height || 0;
-      // Uwaga: Dla płaskich figur (h=0) dodajemy minimalną grubość (epsilon),
-      // żeby dało się je kliknąć.
-      // Dla ujemnych (dziura) box idzie od h do 0.
       const epsilon = 0.1;
       const minY = Math.min(0, h) - (h === 0 ? epsilon : 0);
       const maxY = Math.max(0, h) + (h === 0 ? epsilon : 0);
 
-      // Tworzymy matematyczny Box3
       const box = new THREE.Box3(
         new THREE.Vector3(minX, minY, minZ),
         new THREE.Vector3(maxX, maxY, maxZ),
       );
 
-      // Sprawdzamy czy promień z myszki przecina ten Box
       const intersection = new THREE.Vector3();
       if (raycaster.ray.intersectBox(box, intersection)) {
-        // Obliczamy dystans od kamery, żeby wybrać ten najbliższy
         const dist = intersection.distanceTo(raycaster.ray.origin);
         if (dist < closestDist) {
           closestDist = dist;
@@ -94,7 +86,6 @@ export default function InteractionManager({
     return closestId;
   };
 
-  // --- LOGIKA SNAPOWANIA PUNKTÓW ---
   const getSnappedPosition = (rawPoint: THREE.Vector3) => {
     let closestDist = Infinity;
     let closestPt = rawPoint.clone();
@@ -129,9 +120,7 @@ export default function InteractionManager({
     return { point: closestPt, isSnapped };
   };
 
-  // --- OBSŁUGA RUCHU MYSZKĄ ---
   const handlePointerMove = (e: any) => {
-    // 1. LOGIKA WYCIĄGANIA (Push/Pull)
     if (mode === "EXTRUDE" && extrudeShapeId && extrudeStartY !== null) {
       const currentMouseY = pointer.y;
       const sensitivity = 120;
@@ -163,7 +152,6 @@ export default function InteractionManager({
       return;
     }
 
-    // 2. LOGIKA PODŚWIETLANIA (Hover) - Używamy nowej funkcji 3D
     if (mode === "EXTRUDE" && !extrudeShapeId) {
       const hoveredId = getHoveredShapeId3D();
       setHoveredShapeId(hoveredId);
@@ -172,21 +160,22 @@ export default function InteractionManager({
 
     if (mode === "VIEW") return;
 
-    // 3. LOGIKA RYSOWANIA (Tu nadal używamy płaszczyzny podłogi, bo rysujemy na ziemi)
     raycaster.setFromCamera(pointer, camera);
     raycaster.ray.intersectPlane(virtualPlane, intersectPoint);
 
     if (intersectPoint) {
-      const { point } = getSnappedPosition(intersectPoint);
-      if (!lastSnapRef.current || !point.equals(lastSnapRef.current)) {
-        lastSnapRef.current = point;
-        setSnappedPoint(point);
-        setCurrentPoint(point);
+      const finalPoint = isSnapEnabled
+        ? getSnappedPosition(intersectPoint).point
+        : intersectPoint.clone();
+
+      if (!lastSnapRef.current || !finalPoint.equals(lastSnapRef.current)) {
+        lastSnapRef.current = finalPoint;
+        setSnappedPoint(finalPoint);
+        setCurrentPoint(finalPoint);
       }
     }
   };
 
-  // --- KLIKNIĘCIE ---
   const handlePointerDown = (e: any) => {
     if (mode === "VIEW") return;
     if (e.button !== 0) return;
@@ -194,13 +183,11 @@ export default function InteractionManager({
 
     if (mode === "EXTRUDE") {
       if (extrudeShapeId) {
-        // KONIEC
         setExtrudeShapeId(null);
         setExtrudeStartY(null);
         setHoveredShapeId(null);
         setHeightSnapY(null);
       } else {
-        // START - Używamy nowej funkcji 3D do wykrycia co klikamy
         const targetId = getHoveredShapeId3D();
 
         if (targetId) {
@@ -260,15 +247,16 @@ export default function InteractionManager({
         <meshBasicMaterial />
       </mesh>
 
-      {/* Marker Snapa */}
-      {mode !== "VIEW" && mode !== "EXTRUDE" && snappedPoint && (
-        <mesh position={snappedPoint}>
-          <sphereGeometry args={[2, 16, 16]} />
-          <meshBasicMaterial color="magenta" toneMapped={false} />
-        </mesh>
-      )}
+      {mode !== "VIEW" &&
+        mode !== "EXTRUDE" &&
+        snappedPoint &&
+        isSnapEnabled && (
+          <mesh position={snappedPoint}>
+            <sphereGeometry args={[2, 16, 16]} />
+            <meshBasicMaterial color="magenta" toneMapped={false} />
+          </mesh>
+        )}
 
-      {/* Siatka Snapa Wysokości */}
       {mode === "EXTRUDE" && heightSnapY !== null && (
         <group position={[0, heightSnapY, 0]}>
           <gridHelper args={[1000, 10, "magenta", "magenta"]} />

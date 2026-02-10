@@ -49,8 +49,8 @@ export default function ShapeRenderer({
           transparent: !is3D,
           opacity: is3D ? 1.0 : 0.2, // Płaskie są półprzezroczyste, 3D pełne
           side: THREE.DoubleSide,
-          roughness: 1.0, // Pełny mat (wygląda jak papier/tynk)
-          metalness: 0.0, // Zero połysku
+          roughness: 1.0,
+          metalness: 0.0,
         };
 
         return (
@@ -87,7 +87,6 @@ export default function ShapeRenderer({
               <meshStandardMaterial attach="material-5" {...materialProps} />
             </mesh>
 
-            {/* WYRAŹNE CZARNE KRAWĘDZIE 3D */}
             {is3D && (
               <lineSegments position={[centerX, centerY, centerZ]}>
                 <edgesGeometry
@@ -97,7 +96,7 @@ export default function ShapeRenderer({
                   color={edgeColor}
                   linewidth={1}
                   opacity={edgeOpacity}
-                  transparent={false} // Wyłączamy przezroczystość linii, żeby były ostre
+                  transparent={false}
                 />
               </lineSegments>
             )}
