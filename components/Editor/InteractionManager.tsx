@@ -14,6 +14,8 @@ interface InteractionManagerProps {
   onCalibrate: (distancePx: number) => void;
   setHoveredShapeId: (id: string | null) => void;
   isSnapEnabled: boolean;
+  editingShapeId: string | null;
+  setEditingShapeId: (id: string | null) => void;
 }
 
 export default function InteractionManager({
@@ -24,6 +26,8 @@ export default function InteractionManager({
   onCalibrate,
   setHoveredShapeId,
   isSnapEnabled,
+  editingShapeId,
+  setEditingShapeId,
 }: InteractionManagerProps) {
   const { camera, raycaster, pointer } = useThree();
 
@@ -36,6 +40,11 @@ export default function InteractionManager({
   const [extrudeShapeId, setExtrudeShapeId] = useState<string | null>(null);
   const [extrudeStartY, setExtrudeStartY] = useState<number | null>(null);
   const [initialShapeHeight, setInitialShapeHeight] = useState<number>(0);
+  const [mouseDownPos, setMouseDownPos] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
+  const [hasMoved, setHasMoved] = useState(false);
 
   const [heightSnapY, setHeightSnapY] = useState<number | null>(null);
 
@@ -64,9 +73,10 @@ export default function InteractionManager({
       const maxZ = Math.max(...zVals);
 
       const h = shape.height || 0;
+      const baseY = shape.baseY || 0;
       const epsilon = 0.1;
-      const minY = Math.min(0, h) - (h === 0 ? epsilon : 0);
-      const maxY = Math.max(0, h) + (h === 0 ? epsilon : 0);
+      const minY = baseY + Math.min(0, h) - (h === 0 ? epsilon : 0);
+      const maxY = baseY + Math.max(0, h) + (h === 0 ? epsilon : 0);
 
       const box = new THREE.Box3(
         new THREE.Vector3(minX, minY, minZ),
@@ -98,9 +108,11 @@ export default function InteractionManager({
 
     for (const shape of shapes) {
       for (const ptArr of shape.points) {
-        const pt = new THREE.Vector3(ptArr[0], ptArr[1], ptArr[2]);
+        const baseY = shape.baseY || 0;
+        const pt = new THREE.Vector3(ptArr[0], baseY, ptArr[2]);
+
         if (shape.height && Math.abs(shape.height) > 0.1) {
-          const topPt = pt.clone().setY(shape.height);
+          const topPt = pt.clone().setY(baseY + shape.height);
           const dist = pt.distanceTo(rawPoint);
           if (dist < snapThreshold && dist < closestDist) {
             closestDist = dist;
@@ -121,6 +133,16 @@ export default function InteractionManager({
   };
 
   const handlePointerMove = (e: any) => {
+    // Sprawdź czy użytkownik rusza myszą podczas trzymania przycisku
+    if (mouseDownPos && !hasMoved) {
+      const deltaX = Math.abs(pointer.x - mouseDownPos.x);
+      const deltaY = Math.abs(pointer.y - mouseDownPos.y);
+      if (deltaX > 0.01 || deltaY > 0.01) {
+        setHasMoved(true);
+      }
+    }
+
+    // LOGIKA WYCIĄGANIA (Push/Pull)
     if (mode === "EXTRUDE" && extrudeShapeId && extrudeStartY !== null) {
       const currentMouseY = pointer.y;
       const sensitivity = 120;
@@ -152,7 +174,8 @@ export default function InteractionManager({
       return;
     }
 
-    if (mode === "EXTRUDE" && !extrudeShapeId) {
+    // LOGIKA PODŚWIETLANIA (Hover)
+    if (mode === "EXTRUDE" && !extrudeShapeId && !editingShapeId) {
       const hoveredId = getHoveredShapeId3D();
       setHoveredShapeId(hoveredId);
       return;
@@ -160,6 +183,7 @@ export default function InteractionManager({
 
     if (mode === "VIEW") return;
 
+    // LOGIKA RYSOWANIA
     raycaster.setFromCamera(pointer, camera);
     raycaster.ray.intersectPlane(virtualPlane, intersectPoint);
 
@@ -183,16 +207,24 @@ export default function InteractionManager({
 
     if (mode === "EXTRUDE") {
       if (extrudeShapeId) {
+        // KONIEC ciągnięcia
         setExtrudeShapeId(null);
         setExtrudeStartY(null);
         setHoveredShapeId(null);
         setHeightSnapY(null);
-      } else {
+        setMouseDownPos(null);
+        setHasMoved(false);
+      } else if (!editingShapeId) {
         const targetId = getHoveredShapeId3D();
 
         if (targetId) {
           const targetShape = shapes.find((s) => s.id === targetId);
           if (targetShape) {
+            // Zapisz pozycję myszy przy kliknięciu
+            setMouseDownPos({ x: pointer.x, y: pointer.y });
+            setHasMoved(false);
+
+            // Przygotuj do ciągnięcia
             setExtrudeShapeId(targetId);
             setExtrudeStartY(pointer.y);
             setInitialShapeHeight(targetShape.height || 0);
@@ -221,6 +253,7 @@ export default function InteractionManager({
               [p1.x, 0, p2.z],
             ],
             height: 0,
+            baseY: 0,
           };
           onShapeAdd(newShape);
         }
@@ -234,6 +267,23 @@ export default function InteractionManager({
     }
   };
 
+  const handlePointerUp = (e: any) => {
+    if (mode !== "EXTRUDE") return;
+    if (e.button !== 0) return;
+
+    // Jeśli użytkownik NIE ruszał myszą (tylko kliknął), otwórz panel
+    if (extrudeShapeId && !hasMoved && mouseDownPos) {
+      setEditingShapeId(extrudeShapeId);
+      setExtrudeShapeId(null);
+      setExtrudeStartY(null);
+      setHoveredShapeId(null);
+      setHeightSnapY(null);
+    }
+
+    setMouseDownPos(null);
+    setHasMoved(false);
+  };
+
   return (
     <>
       <mesh
@@ -243,6 +293,7 @@ export default function InteractionManager({
         geometry={invisiblePlaneGeo}
         onPointerMove={handlePointerMove}
         onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
       >
         <meshBasicMaterial />
       </mesh>
