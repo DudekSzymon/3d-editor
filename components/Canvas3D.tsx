@@ -249,13 +249,18 @@ export default function Canvas3D() {
           currentBaseY={editingShape.baseY || 0}
           onApply={handleHeightApply}
           onCancel={() => setEditingShapeId(null)}
+          orientation={editingShape.orientation}
+          faceDirection={editingShape.faceDirection}
+          isChild={!!editingShape.parentId}
         />
       )}
 
       {mode !== "VIEW" && (
         <div className="absolute top-4 left-24 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded shadow-lg z-20 text-sm font-bold animate-pulse">
-          {mode === "DRAW_RECT" && "RYSOWANIE: Zaznacz narożniki"}
-          {mode === "EXTRUDE" && "WYCIĄGANIE: Kliknij figurę aby edytować"}
+          {mode === "DRAW_RECT" &&
+            "RYSOWANIE: Kliknij podłogę lub ścianę bryły, potem drugi narożnik"}
+          {mode === "EXTRUDE" &&
+            "WYCIĄGANIE: Ciągnij figurę myszą lub kliknij aby wpisać wartość"}
         </div>
       )}
     </div>
