@@ -51,6 +51,7 @@ export default function InteractionManager({
   const { camera, raycaster, pointer } = useThree();
 
   const lastSnapRef = useRef<THREE.Vector3 | null>(null);
+  const dragPlaneParamRef = useRef<number | null>(null);
 
   const [startPoint, setStartPoint] = useState<THREE.Vector3 | null>(null);
   const [currentPoint, setCurrentPoint] = useState<THREE.Vector3 | null>(null);
@@ -76,6 +77,7 @@ export default function InteractionManager({
     setHeightSnapY(null);
     setMouseDownPos(null);
     setHasMoved(false);
+    dragPlaneParamRef.current = null;
   }, [mode, setActiveExtrudeId]);
 
   const invisiblePlaneGeo = useMemo(
@@ -300,12 +302,14 @@ export default function InteractionManager({
   };
 
   const handlePointerMove = () => {
+    // Wykrywanie czy faktycznie ruszyliśmy myszką (żeby odróżnić kliknięcie od przeciągnięcia)
     if (mouseDownPos && !hasMoved) {
       const deltaX = Math.abs(pointer.x - mouseDownPos.x);
       const deltaY = Math.abs(pointer.y - mouseDownPos.y);
       if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
     }
 
+    // --- TRYB PRZESUWANIA CAŁEJ BRYŁY (EXTRUDE) ---
     if (
       mode === "EXTRUDE" &&
       editingShapeId &&
@@ -315,20 +319,31 @@ export default function InteractionManager({
     ) {
       const shape = shapes.find((s) => s.id === editingShapeId);
       if (shape) {
-        // Tworzymy wirtualną płaszczyznę na której leży podstawa bryły
         const plane = new THREE.Plane();
         const orient = shape.orientation || "xz";
+
+        // FIX: Używamy zapamiętanej wysokości kliknięcia (dragPlaneParamRef),
+        // a jeśli jej nie ma (np. błąd), to bierzemy pozycję podstawy bryły.
+        // To eliminuje "skok" paralaksy.
+        const storedParam = dragPlaneParamRef.current;
+        const defaultParam =
+          (orient === "xz" ? shape.baseY : shape.faceOffset) || 0;
+
+        // Jeśli mamy zapamiętany punkt chwytu, używamy go. Jeśli nie - default.
+        // W Three.js 'constant' płaszczyzny to minus odległość od początku układu.
+        const planeConstant =
+          storedParam !== null ? -storedParam : -defaultParam;
+
         if (orient === "xz")
-          plane.set(new THREE.Vector3(0, 1, 0), -(shape.baseY || 0));
+          plane.set(new THREE.Vector3(0, 1, 0), planeConstant);
         else if (orient === "xy")
-          plane.set(new THREE.Vector3(0, 0, 1), -(shape.faceOffset || 0));
-        else plane.set(new THREE.Vector3(1, 0, 0), -(shape.faceOffset || 0));
+          plane.set(new THREE.Vector3(0, 0, 1), planeConstant);
+        else plane.set(new THREE.Vector3(1, 0, 0), planeConstant);
 
         const intersection = new THREE.Vector3();
         raycaster.setFromCamera(pointer, camera);
 
         if (raycaster.ray.intersectPlane(plane, intersection)) {
-          // Jeśli mamy punkt startowy ruchu, obliczamy przesunięcie (delta)
           if (lastSnapRef.current) {
             const delta = intersection.clone().sub(lastSnapRef.current);
 
@@ -343,11 +358,9 @@ export default function InteractionManager({
                 points: newPoints as [number, number, number][],
               });
 
-              // Aktualizujemy punkt referencyjny na obecny
               lastSnapRef.current = intersection.clone();
             }
           } else {
-            // Inicjalizacja punktu startowego przy pierwszym ruchu
             lastSnapRef.current = intersection.clone();
           }
           return;
@@ -355,7 +368,7 @@ export default function InteractionManager({
       }
     }
 
-    // TRYB EXTRUDE - WYCIĄGANIE WYSOKOŚCI (ISTNIEJĄCE)
+    // --- TRYB WYCIĄGANIA WYSOKOŚCI (EXTRUDE HEIGHT) ---
     if (mode === "EXTRUDE" && activeExtrudeId && extrudeStartY !== null) {
       const deltaY = (pointer.y - extrudeStartY) * 120;
       let newHeight = initialShapeHeight + deltaY;
@@ -382,6 +395,7 @@ export default function InteractionManager({
       return;
     }
 
+    // Podświetlanie obiektów pod kursorem (gdy nic nie robimy)
     if (mode === "EXTRUDE" && !activeExtrudeId && !editingShapeId) {
       setHoveredShapeId(getHoveredShapeId3D());
       return;
@@ -389,6 +403,7 @@ export default function InteractionManager({
 
     if (mode === "VIEW") return;
 
+    // --- RYSOWANIE (DRAW_RECT / CALIBRATE) ---
     const rawPoint = getDrawingPoint();
     if (!rawPoint) return;
 
@@ -417,6 +432,7 @@ export default function InteractionManager({
         setMouseDownPos(null);
         setHasMoved(false);
         lastSnapRef.current = null;
+        dragPlaneParamRef.current = null;
       } else {
         const targetId = getHoveredShapeId3D();
 
@@ -426,10 +442,40 @@ export default function InteractionManager({
             setMouseDownPos({ x: pointer.x, y: pointer.y });
             setHasMoved(false);
 
-            const rawPoint = getDrawingPoint();
-            if (rawPoint) {
-              lastSnapRef.current = rawPoint.clone();
+            // --- NOWA LOGIKA: Obliczamy punkt przecięcia z BRYŁĄ (a nie podłogą) ---
+            const { boxArgs, center } = getShapeBoxParams(targetShape);
+            const isHole = !!targetShape.parentId;
+            const hMargin = isHole ? 15.0 : 0.5;
+
+            // Tworzymy Box identyczny jak przy wykrywaniu najechania
+            const box = new THREE.Box3().setFromCenterAndSize(
+              new THREE.Vector3(center.x, center.y, center.z),
+              new THREE.Vector3(
+                boxArgs[0] + hMargin,
+                boxArgs[1] + 0.5,
+                boxArgs[2] + hMargin,
+              ),
+            );
+
+            raycaster.setFromCamera(pointer, camera);
+            const intersection = new THREE.Vector3();
+
+            // Sprawdzamy, w którym DOKŁADNIE punkcie kliknęliśmy na bryle
+            if (raycaster.ray.intersectBox(box, intersection)) {
+              lastSnapRef.current = intersection.clone();
+
+              const orient = targetShape.orientation || "xz";
+              // Zapamiętujemy głębokość/wysokość kliknięcia dla płaszczyzny przesuwania
+              if (orient === "xz") dragPlaneParamRef.current = intersection.y;
+              else if (orient === "xy")
+                dragPlaneParamRef.current = intersection.z;
+              else dragPlaneParamRef.current = intersection.x;
+            } else {
+              // Fallback (rzadki przypadek)
+              const rawPoint = getDrawingPoint();
+              if (rawPoint) lastSnapRef.current = rawPoint.clone();
             }
+            // --- KONIEC NOWEJ LOGIKI ---
 
             if (!editingShapeId) {
               setActiveExtrudeId(targetId);
@@ -578,6 +624,7 @@ export default function InteractionManager({
     setMouseDownPos(null);
     setHasMoved(false);
     lastSnapRef.current = null;
+    dragPlaneParamRef.current = null;
   };
 
   const previewPoints = useMemo(() => {

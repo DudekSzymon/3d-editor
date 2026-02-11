@@ -14,7 +14,6 @@ interface ShapeRendererProps {
 
 const CSG_OVERLAP = 2.0;
 
-/** Tworzy Brush do operacji CSG */
 function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
   const { boxArgs, center } = getShapeBoxParams(shape);
   const orient = shape.orientation || "xz";
@@ -25,7 +24,6 @@ function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
 
   if (isHole) {
     const m = 0.5;
-    // Powiększenie obrysu dla czystego cięcia
     if (orient === "xz") {
       bx += m * 2;
       bz += m * 2;
@@ -57,7 +55,6 @@ function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
   return brush;
 }
 
-/** Renderuje obrys kształtu z opcjonalną grubością linii */
 function ShapeOutline({
   shape,
   color,
@@ -86,7 +83,6 @@ function ShapeOutline({
   );
 }
 
-/** Renderuje bryłę bez wycięć (używane jako fallback lub dla podglądu) */
 function SolidBox({
   shape,
   isHovered,
@@ -155,7 +151,6 @@ function CSGShape({
     }
   }, [rootShape, activeCuts, is3D]);
 
-  // Kolor bryły (zmienia się tylko jeśli najeżdżamy bezpośrednio na nią, a nie na jej otwór)
   const color = isRootHovered ? "#cbd5e1" : "#e5e7eb";
 
   return (
@@ -170,8 +165,8 @@ function CSGShape({
           <ShapeOutline
             key={`outline-${child.id}`}
             shape={child}
-            color={isChildHovered ? "#fbbf24" : "#ff4444"} // Żółty amber przy najechaniu
-            lineWidth={isChildHovered ? 4 : 2} // Grubsza linia przy najechaniu
+            color={isChildHovered ? "#fbbf24" : "#ff4444"}
+            lineWidth={isChildHovered ? 4 : 2}
           />
         );
       })}
@@ -204,7 +199,6 @@ export default function ShapeRenderer({
 }: ShapeRendererProps) {
   const rootShapes = shapes.filter((s) => !s.parentId);
 
-  // Funkcja rekurencyjna do znajdowania wszystkich dziur potomnych (SketchUp-style)
   const getDescendantHoles = (parent: DrawnShape) => {
     const holes: DrawnShape[] = [];
     const findHoles = (pid: string) => {

@@ -7,7 +7,7 @@ interface HeightInputPanelProps {
   currentBaseY: number;
   onApply: (height: number, baseY: number) => void;
   onCancel: () => void;
-  onMove: (dx: number, dy: number, dz: number) => void; // Nowy prop do przesuwania
+  onMove: (dx: number, dy: number, dz: number) => void;
   orientation?: "xz" | "xy" | "yz";
   faceDirection?: number;
   isChild?: boolean;
@@ -25,7 +25,7 @@ export default function HeightInputPanel({
 }: HeightInputPanelProps) {
   const [heightValue, setHeightValue] = useState(currentHeight.toString());
   const [baseYValue, setBaseYValue] = useState(currentBaseY.toString());
-  const [moveStep, setMoveStep] = useState(5); // Krok przesunięcia w mm
+  const [moveStep, setMoveStep] = useState(1);
   const heightInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -108,7 +108,6 @@ export default function HeightInputPanel({
         )}
       </h3>
 
-      {/* Sekcja przesuwania (D-Pad) */}
       <div className="mb-6 p-3 bg-gray-50 rounded-md border border-gray-200">
         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-2 text-center">
           Przesuń element (krok {moveStep}mm)
