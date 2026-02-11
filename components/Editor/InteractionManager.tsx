@@ -111,7 +111,7 @@ export default function InteractionManager({
     for (const shape of shapes) {
       const { boxArgs, center } = getShapeBoxParams(shape);
       const isHole = !!shape.parentId;
-      const hMargin = isHole ? 15.0 : 0.5;
+      const hMargin = isHole ? 1.0 : 0.5;
       const vMargin = 0.5;
 
       const box = new THREE.Box3().setFromCenterAndSize(
@@ -136,7 +136,7 @@ export default function InteractionManager({
 
     if (hits.length === 0) return null;
     hits.sort((a, b) => {
-      if (Math.abs(a.dist - b.dist) < 100.0) {
+      if (Math.abs(a.dist - b.dist) < 1) {
         if (a.isChild !== b.isChild) return a.isChild ? -1 : 1;
         return a.area - b.area;
       }

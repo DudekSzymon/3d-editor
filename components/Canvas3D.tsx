@@ -19,9 +19,13 @@ import Axes from "./Editor/Axes";
 import BackgroundPlane from "./Editor/BackgroundPlane";
 import ShapeRenderer from "./Editor/ShapeRenderer";
 import InteractionManager from "./Editor/InteractionManager";
-import { EditorMode, DrawnShape, BackgroundImageData } from "./Editor/types";
+import {
+  EditorMode,
+  DrawnShape,
+  BackgroundImageData,
+  getShapeBoxParams,
+} from "./Editor/types";
 
-// --- POPRAWIONA DEFINICJA PROPSÓW DLA SCENECONTENT ---
 interface SceneContentProps {
   onResetReady: (fn: () => void) => void;
   backgroundImage: BackgroundImageData | null;
@@ -299,14 +303,92 @@ export default function Canvas3D() {
     }
   };
 
-  const handleHeightApply = (height: number, baseY: number) => {
-    if (editingShapeId) {
-      const newShapes = shapes.map((s) =>
-        s.id === editingShapeId ? { ...s, height, baseY } : s,
-      );
-      saveToHistory(newShapes);
-      setEditingShapeId(null);
+  const handleHeightApply = (updates: {
+    height: number;
+    baseY: number;
+    newWidth?: number;
+    newDepth?: number;
+  }) => {
+    if (!editingShapeId) return;
+
+    const shape = shapes.find((s) => s.id === editingShapeId);
+    if (!shape) return;
+
+    let updatedShape = { ...shape };
+
+    // 1. Najpierw zmień wysokość i baseY
+    updatedShape.height = updates.height;
+    updatedShape.baseY = updates.baseY;
+
+    // 2. Jeśli są nowe wymiary, przeskaluj punkty
+    if (updates.newWidth !== undefined && updates.newDepth !== undefined) {
+      const { width: oldWidth, depth: oldDepth } = getShapeBoxParams(shape);
+      const scaleW = updates.newWidth / oldWidth;
+      const scaleD = updates.newDepth / oldDepth;
+
+      const orientation = shape.orientation || "xz";
+
+      // Znajdź środek prostokąta
+      let centerX = 0,
+        centerY = 0,
+        centerZ = 0;
+
+      if (orientation === "xz") {
+        // Dla poziomych: środek w X i Z
+        centerX = (shape.points[0][0] + shape.points[2][0]) / 2;
+        centerZ = (shape.points[0][2] + shape.points[2][2]) / 2;
+        centerY = shape.baseY || 0;
+      } else if (orientation === "xy") {
+        // Dla pionowych front/back: środek w X i Y
+        centerX = (shape.points[0][0] + shape.points[2][0]) / 2;
+        centerY = (shape.points[0][1] + shape.points[2][1]) / 2;
+        centerZ = shape.faceOffset || 0;
+      } else {
+        // yz - boczne ściany: środek w Y i Z
+        centerY = (shape.points[0][1] + shape.points[2][1]) / 2;
+        centerZ = (shape.points[0][2] + shape.points[2][2]) / 2;
+        centerX = shape.faceOffset || 0;
+      }
+
+      // Przeskaluj punkty względem środka
+      const newPoints = shape.points.map((p) => {
+        if (orientation === "xz") {
+          const dx = p[0] - centerX;
+          const dz = p[2] - centerZ;
+          return [centerX + dx * scaleW, p[1], centerZ + dz * scaleD] as [
+            number,
+            number,
+            number,
+          ];
+        } else if (orientation === "xy") {
+          const dx = p[0] - centerX;
+          const dy = p[1] - centerY;
+          return [centerX + dx * scaleW, centerY + dy * scaleD, p[2]] as [
+            number,
+            number,
+            number,
+          ];
+        } else {
+          // yz
+          const dy = p[1] - centerY;
+          const dz = p[2] - centerZ;
+          return [p[0], centerY + dy * scaleD, centerZ + dz * scaleW] as [
+            number,
+            number,
+            number,
+          ];
+        }
+      });
+
+      updatedShape.points = newPoints;
     }
+
+    // 3. Zapisz zmiany
+    const newShapes = shapes.map((s) =>
+      s.id === editingShapeId ? updatedShape : s,
+    );
+    saveToHistory(newShapes);
+    setEditingShapeId(null);
   };
 
   const editingShape = editingShapeId
@@ -359,6 +441,7 @@ export default function Canvas3D() {
         <HeightInputPanel
           currentHeight={editingShape.height}
           currentBaseY={editingShape.baseY || 0}
+          shape={editingShape}
           onApply={handleHeightApply}
           onCancel={() => setEditingShapeId(null)}
           orientation={editingShape.orientation}

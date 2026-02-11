@@ -42,7 +42,6 @@ export default function Toolbar({
 
   const tools = [
     { id: "VIEW", icon: FaMousePointer, label: "Widok" },
-    { id: "CALIBRATE", icon: FaRulerCombined, label: "Kalibruj" },
     { id: "DRAW_RECT", icon: FaVectorSquare, label: "Rysuj" },
     { id: "EXTRUDE", icon: FaCube, label: "Wyciągnij" },
   ] as const;
