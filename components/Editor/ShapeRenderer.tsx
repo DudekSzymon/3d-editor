@@ -9,143 +9,106 @@ import { DrawnShape, getShapeBoxParams, isOutwardExtrusion } from "./types";
 interface ShapeRendererProps {
   shapes: DrawnShape[];
   hoveredShapeId?: string | null;
+  activeExtrudeId?: string | null; // Dodane, aby naprawić błąd TypeScript w Canvas3D
 }
 
-/**
- * Tworzy Brush CSG z kształtu.
- * @param margin - dodatkowy margines (używany dla wycięć, żeby brush
- *   wystawał poza rodzica i nie zostawiał cienkiego plasterka)
- */
-function createBrushFromShape(shape: DrawnShape, margin = 0): Brush {
+const CSG_OVERLAP = 2.0;
+
+function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
   const { boxArgs, center } = getShapeBoxParams(shape);
-
-  // Powiększ wymiary prostopadłe do kierunku wyciągania o margines.
-  // Kierunek wyciągania zależy od orientacji:
-  //   xz → wyciąga wzdłuż Y, więc powiększamy X i Z
-  //   xy → wyciąga wzdłuż Z, więc powiększamy X i Y
-  //   yz → wyciąga wzdłuż X, więc powiększamy Y i Z
   const orient = shape.orientation || "xz";
-  let [bx, by, bz] = boxArgs;
+  const faceDir = shape.faceDirection ?? 1;
 
-  if (margin > 0) {
+  let [bx, by, bz] = boxArgs;
+  let { x, y, z } = center;
+
+  if (isHole) {
+    const m = 0.5;
     if (orient === "xz") {
-      bx += margin * 2;
-      bz += margin * 2;
+      bx += m * 2;
+      bz += m * 2;
     } else if (orient === "xy") {
-      bx += margin * 2;
-      by += margin * 2;
+      bx += m * 2;
+      by += m * 2;
     } else {
-      by += margin * 2;
-      bz += margin * 2;
+      by += m * 2;
+      bz += m * 2;
+    }
+    if (orient === "xz") {
+      by += CSG_OVERLAP;
+      y += (CSG_OVERLAP / 2) * faceDir;
+    } else if (orient === "xy") {
+      bz += CSG_OVERLAP;
+      z += (CSG_OVERLAP / 2) * faceDir;
+    } else {
+      bx += CSG_OVERLAP;
+      x += (CSG_OVERLAP / 2) * faceDir;
     }
   }
 
   const geo = new THREE.BoxGeometry(bx, by, bz);
   const brush = new Brush(geo);
-  brush.position.set(center.x, center.y, center.z);
+  brush.position.set(x, y, z);
   brush.updateMatrixWorld();
   return brush;
 }
 
-/** Obrys 2D na płaszczyźnie kształtu */
 function ShapeOutline({ shape, color }: { shape: DrawnShape; color: string }) {
   const orientation = shape.orientation || "xz";
   const baseY = shape.baseY || 0;
+  const points = shape.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
 
-  if (orientation === "xz") {
-    return (
-      <Line
-        points={[
-          ...shape.points.map((p) => new THREE.Vector3(p[0], baseY, p[2])),
-          new THREE.Vector3(shape.points[0][0], baseY, shape.points[0][2]),
-        ]}
-        color={color}
-        lineWidth={2}
-        position={[0, 0.05, 0]}
-      />
-    );
-  }
-  if (orientation === "xy") {
-    const fz = shape.faceOffset || 0;
-    return (
-      <Line
-        points={[
-          ...shape.points.map((p) => new THREE.Vector3(p[0], p[1], fz)),
-          new THREE.Vector3(shape.points[0][0], shape.points[0][1], fz),
-        ]}
-        color={color}
-        lineWidth={2}
-      />
-    );
-  }
-  const fx = shape.faceOffset || 0;
+  if (orientation === "xz") points.forEach((p) => (p.y = baseY));
+  else if (orientation === "xy")
+    points.forEach((p) => (p.z = shape.faceOffset || 0));
+  else points.forEach((p) => (p.x = shape.faceOffset || 0));
+
   return (
     <Line
-      points={[
-        ...shape.points.map((p) => new THREE.Vector3(fx, p[1], p[2])),
-        new THREE.Vector3(fx, shape.points[0][1], shape.points[0][2]),
-      ]}
+      points={[...points, points[0]]}
       color={color}
       lineWidth={2}
+      position={orientation === "xz" ? [0, 0.05, 0] : [0, 0, 0]}
     />
   );
 }
 
-/** Renderuje prostą bryłę (box + krawędzie). */
 function SolidBox({
   shape,
   isHovered,
-  outlineColor,
+  outlineColor = "black",
 }: {
   shape: DrawnShape;
   isHovered: boolean;
-  outlineColor: string;
+  outlineColor?: string;
 }) {
   const { boxArgs, center } = getShapeBoxParams(shape);
-  const height = shape.height || 0;
-  const is3D = Math.abs(height) > 0.01;
-
+  const is3D = Math.abs(shape.height) > 0.01;
   const color = isHovered ? "#cbd5e1" : "#e5e7eb";
 
   return (
     <group>
       <ShapeOutline shape={shape} color={outlineColor} />
-
-      {is3D ? (
-        <>
-          <mesh position={[center.x, center.y, center.z]}>
-            <boxGeometry args={boxArgs} />
-            <meshStandardMaterial
-              color={color}
-              roughness={1}
-              metalness={0}
-              side={THREE.FrontSide}
-            />
-          </mesh>
-          <lineSegments position={[center.x, center.y, center.z]}>
-            <edgesGeometry args={[new THREE.BoxGeometry(...boxArgs)]} />
-            <lineBasicMaterial color="#000000" />
-          </lineSegments>
-        </>
-      ) : (
-        <mesh position={[center.x, center.y, center.z]}>
-          <boxGeometry args={boxArgs} />
-          <meshStandardMaterial
-            color={color}
-            transparent
-            opacity={0.15}
-            side={THREE.DoubleSide}
-            roughness={1}
-            metalness={0}
-            depthWrite={false}
-          />
-        </mesh>
+      <mesh position={[center.x, center.y, center.z]}>
+        <boxGeometry args={boxArgs} />
+        <meshStandardMaterial
+          color={color}
+          transparent={!is3D}
+          opacity={is3D ? 1 : 0.15}
+          side={THREE.DoubleSide}
+          depthWrite={is3D}
+        />
+      </mesh>
+      {is3D && (
+        <lineSegments position={[center.x, center.y, center.z]}>
+          <edgesGeometry args={[new THREE.BoxGeometry(...boxArgs)]} />
+          <lineBasicMaterial color="#000000" />
+        </lineSegments>
       )}
     </group>
   );
 }
 
-/** Renderuje root shape z ewentualnymi wycięciami CSG */
 function CSGShape({
   rootShape,
   holeChildren,
@@ -159,45 +122,29 @@ function CSGShape({
     hoveredShapeId === rootShape.id ||
     holeChildren.some((c) => c.id === hoveredShapeId);
 
-  const { boxArgs, center } = getShapeBoxParams(rootShape);
-  const height = rootShape.height || 0;
-  const is3D = Math.abs(height) > 0.01;
-
-  const color = isHovered ? "#cbd5e1" : "#e5e7eb";
-
-  // Filtruj wycięcia z prawdziwą wysokością
+  const is3D = Math.abs(rootShape.height) > 0.01;
   const activeCuts = holeChildren.filter((c) => Math.abs(c.height) > 0.01);
-
-  // Klucz do wymuszenia remount przy zmianie ilości wycięć
-  const csgKey = `csg-${rootShape.id}-${activeCuts.length}-${activeCuts.map((c) => `${c.id}:${c.height.toFixed(2)}`).join(",")}`;
 
   const csgGeometry = useMemo(() => {
     if (activeCuts.length === 0 || !is3D) return null;
 
-    // Margines zapobiega zostawianiu cienkiego plasterka na krawędzi
-    const CSG_MARGIN = 0.5;
-
     try {
       const evaluator = new Evaluator();
-      let resultBrush = createBrushFromShape(rootShape);
+      let resultBrush = createBrushFromShape(rootShape, false);
 
       for (const child of activeCuts) {
-        const childBrush = createBrushFromShape(child, CSG_MARGIN);
+        const childBrush = createBrushFromShape(child, true);
         resultBrush = evaluator.evaluate(resultBrush, childBrush, SUBTRACTION);
       }
       return resultBrush.geometry;
     } catch (e) {
-      console.warn("CSG evaluation failed:", e);
       return null;
     }
   }, [rootShape, activeCuts, is3D]);
 
   return (
     <group>
-      {/* Obrys podstawy root */}
       <ShapeOutline shape={rootShape} color="black" />
-
-      {/* Obrysy wycięć (z height > 0.01) */}
       {holeChildren.map((child) => (
         <ShapeOutline
           key={`outline-${child.id}`}
@@ -206,14 +153,11 @@ function CSGShape({
         />
       ))}
 
-      {/* Renderuj z CSG lub normalnie */}
       {csgGeometry && is3D ? (
-        <group key={csgKey}>
+        <group>
           <mesh geometry={csgGeometry}>
             <meshStandardMaterial
-              color={color}
-              roughness={1}
-              metalness={0}
+              color={isHovered ? "#cbd5e1" : "#e5e7eb"}
               side={THREE.DoubleSide}
             />
           </mesh>
@@ -222,37 +166,8 @@ function CSGShape({
             <lineBasicMaterial color="#000000" />
           </lineSegments>
         </group>
-      ) : is3D ? (
-        <group key={`box-${rootShape.id}`}>
-          <mesh position={[center.x, center.y, center.z]}>
-            <boxGeometry args={boxArgs} />
-            <meshStandardMaterial
-              color={color}
-              roughness={1}
-              metalness={0}
-              side={THREE.FrontSide}
-            />
-          </mesh>
-          <lineSegments position={[center.x, center.y, center.z]}>
-            <edgesGeometry args={[new THREE.BoxGeometry(...boxArgs)]} />
-            <lineBasicMaterial color="#000000" />
-          </lineSegments>
-        </group>
       ) : (
-        <group key={`flat-${rootShape.id}`}>
-          <mesh position={[center.x, center.y, center.z]}>
-            <boxGeometry args={boxArgs} />
-            <meshStandardMaterial
-              color={color}
-              transparent
-              opacity={0.15}
-              side={THREE.DoubleSide}
-              roughness={1}
-              metalness={0}
-              depthWrite={false}
-            />
-          </mesh>
-        </group>
+        <SolidBox shape={rootShape} isHovered={isHovered} />
       )}
     </group>
   );
@@ -261,43 +176,29 @@ function CSGShape({
 export default function ShapeRenderer({
   shapes,
   hoveredShapeId,
+  activeExtrudeId,
 }: ShapeRendererProps) {
   const rootShapes = shapes.filter((s) => !s.parentId);
   const childShapes = shapes.filter((s) => !!s.parentId);
 
-  // Rozdziel dzieci na: wycięcia (inward / nie wyciągnięte) vs bryły (outward)
-  const holeChildren: DrawnShape[] = [];
-  const additionChildren: DrawnShape[] = [];
-
-  for (const child of childShapes) {
-    if (Math.abs(child.height) < 0.01) {
-      // Jeszcze nie wyciągnięty — jest tylko obrysem na rodzicu
-      holeChildren.push(child);
-    } else if (isOutwardExtrusion(child)) {
-      // Na zewnątrz = nowa niezależna bryła
-      additionChildren.push(child);
-    } else {
-      // Do wewnątrz = wycięcie CSG
-      holeChildren.push(child);
-    }
-  }
+  const holeChildren = childShapes.filter(
+    (c) => Math.abs(c.height) < 0.01 || !isOutwardExtrusion(c),
+  );
+  const additionChildren = childShapes.filter(
+    (c) => Math.abs(c.height) >= 0.01 && isOutwardExtrusion(c),
+  );
 
   return (
     <group>
-      {/* Root shapes z wycięciami CSG */}
-      {rootShapes.map((root) => {
-        const myHoles = holeChildren.filter((c) => c.parentId === root.id);
-        return (
-          <CSGShape
-            key={root.id}
-            rootShape={root}
-            holeChildren={myHoles}
-            hoveredShapeId={hoveredShapeId}
-          />
-        );
-      })}
+      {rootShapes.map((root) => (
+        <CSGShape
+          key={root.id}
+          rootShape={root}
+          holeChildren={holeChildren.filter((h) => h.parentId === root.id)}
+          hoveredShapeId={hoveredShapeId}
+        />
+      ))}
 
-      {/* Addition children = niezależne bryły */}
       {additionChildren.map((child) => (
         <SolidBox
           key={child.id}

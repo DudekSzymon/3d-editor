@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo, useCallback } from "react";
+import { useState, useRef, useMemo, useCallback, useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import { Line } from "@react-three/drei";
 import * as THREE from "three";
@@ -21,6 +21,10 @@ interface InteractionManagerProps {
   isSnapEnabled: boolean;
   editingShapeId: string | null;
   setEditingShapeId: (id: string | null) => void;
+  // NOWE PROPSY DO OBSŁUGI HISTORII I PŁYNNOŚCI
+  activeExtrudeId: string | null;
+  setActiveExtrudeId: (id: string | null) => void;
+  onShapesCommit: () => void;
 }
 
 interface DrawingFaceState {
@@ -41,6 +45,9 @@ export default function InteractionManager({
   isSnapEnabled,
   editingShapeId,
   setEditingShapeId,
+  activeExtrudeId,
+  setActiveExtrudeId,
+  onShapesCommit,
 }: InteractionManagerProps) {
   const { camera, raycaster, pointer } = useThree();
 
@@ -52,7 +59,7 @@ export default function InteractionManager({
 
   const [drawingFace, setDrawingFace] = useState<DrawingFaceState | null>(null);
 
-  const [extrudeShapeId, setExtrudeShapeId] = useState<string | null>(null);
+  // UWAGA: Usunęliśmy lokalny extrudeShapeId, teraz używamy activeExtrudeId z propsów
   const [extrudeStartY, setExtrudeStartY] = useState<number | null>(null);
   const [initialShapeHeight, setInitialShapeHeight] = useState<number>(0);
   const [mouseDownPos, setMouseDownPos] = useState<{
@@ -61,6 +68,18 @@ export default function InteractionManager({
   } | null>(null);
   const [hasMoved, setHasMoved] = useState(false);
   const [heightSnapY, setHeightSnapY] = useState<number | null>(null);
+
+  // === NAPRAWA "WISZĄCYCH" LINII (ESC / ZMIANA TRYBU) ===
+  useEffect(() => {
+    setStartPoint(null);
+    setCurrentPoint(null);
+    setSnappedPoint(null);
+    setDrawingFace(null);
+    setActiveExtrudeId(null);
+    setHeightSnapY(null);
+    setMouseDownPos(null);
+    setHasMoved(false);
+  }, [mode, setActiveExtrudeId]);
 
   const invisiblePlaneGeo = useMemo(
     () => new THREE.PlaneGeometry(100000, 100000),
@@ -97,7 +116,6 @@ export default function InteractionManager({
       const halfH = boxArgs[1] / 2;
       const halfD = boxArgs[2] / 2;
 
-      // Dla płaskich kształtów (height≈0) rozszerz AABB
       const flatEps = Math.abs(shape.height) < 0.1 ? 3.0 : 0;
 
       const box = new THREE.Box3(
@@ -165,7 +183,6 @@ export default function InteractionManager({
       const dist = intersection.distanceTo(raycaster.ray.origin);
       if (dist >= closestDist) continue;
 
-      // Znajdź najbliższą ścianę
       const faces: {
         face: string;
         d: number;
@@ -257,13 +274,11 @@ export default function InteractionManager({
         const orient = shape.orientation || "xz";
         let pt: THREE.Vector3;
 
-        if (orient === "xz") {
+        if (orient === "xz")
           pt = new THREE.Vector3(ptArr[0], shape.baseY || 0, ptArr[2]);
-        } else if (orient === "xy") {
+        else if (orient === "xy")
           pt = new THREE.Vector3(ptArr[0], ptArr[1], shape.faceOffset || 0);
-        } else {
-          pt = new THREE.Vector3(shape.faceOffset || 0, ptArr[1], ptArr[2]);
-        }
+        else pt = new THREE.Vector3(shape.faceOffset || 0, ptArr[1], ptArr[2]);
 
         const dist = pt.distanceTo(rawPoint);
         if (dist < snapThreshold && dist < closestDist) {
@@ -271,7 +286,6 @@ export default function InteractionManager({
           closestPt = pt.clone();
         }
 
-        // Snap do narożników po wyciągnięciu
         if (shape.height && Math.abs(shape.height) > 0.1) {
           const topPt = pt.clone();
           if (orient === "xz") topPt.y += shape.height;
@@ -286,79 +300,56 @@ export default function InteractionManager({
         }
       }
     }
-    return {
-      point: closestPt,
-      isSnapped: closestDist < snapThreshold,
-    };
+    return { point: closestPt, isSnapped: closestDist < snapThreshold };
   };
 
   const getDrawingPoint = (): THREE.Vector3 | null => {
     raycaster.setFromCamera(pointer, camera);
     const target = new THREE.Vector3();
-
-    if (drawingFace) {
-      if (raycaster.ray.intersectPlane(drawingFace.plane, target)) {
-        return target;
-      }
-      return null;
-    }
-
-    if (raycaster.ray.intersectPlane(virtualPlane, target)) {
-      return target;
-    }
-    return null;
+    const plane = drawingFace ? drawingFace.plane : virtualPlane;
+    return raycaster.ray.intersectPlane(plane, target) ? target : null;
   };
 
   const handlePointerMove = () => {
     if (mouseDownPos && !hasMoved) {
       const deltaX = Math.abs(pointer.x - mouseDownPos.x);
       const deltaY = Math.abs(pointer.y - mouseDownPos.y);
-      if (deltaX > 0.01 || deltaY > 0.01) {
-        setHasMoved(true);
-      }
+      if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
     }
 
-    if (mode === "EXTRUDE" && extrudeShapeId && extrudeStartY !== null) {
-      const currentMouseY = pointer.y;
-      const sensitivity = 120;
-      const deltaY = (currentMouseY - extrudeStartY) * sensitivity;
+    if (mode === "EXTRUDE" && activeExtrudeId && extrudeStartY !== null) {
+      const deltaY = (pointer.y - extrudeStartY) * 120;
       let newHeight = initialShapeHeight + deltaY;
 
       const snapThreshold = 1.0;
       let snappedH: number | null = null;
 
       for (const shape of shapes) {
-        if (shape.id === extrudeShapeId) continue;
+        if (shape.id === activeExtrudeId) continue;
         const h = shape.height || 0;
         if (Math.abs(h) < 0.1) continue;
-
         if (Math.abs(newHeight - h) < snapThreshold) {
           newHeight = h;
           snappedH = h;
           break;
         }
       }
-
       if (snappedH === null && Math.abs(newHeight) < snapThreshold) {
         newHeight = 0;
         snappedH = 0;
       }
-
       setHeightSnapY(snappedH);
-      onShapeUpdate(extrudeShapeId, { height: newHeight });
+      onShapeUpdate(activeExtrudeId, { height: newHeight });
       return;
     }
 
-    // === HOVER ===
-    if (mode === "EXTRUDE" && !extrudeShapeId && !editingShapeId) {
-      const hoveredId = getHoveredShapeId3D();
-      setHoveredShapeId(hoveredId);
+    if (mode === "EXTRUDE" && !activeExtrudeId && !editingShapeId) {
+      setHoveredShapeId(getHoveredShapeId3D());
       return;
     }
 
     if (mode === "VIEW") return;
 
-    // === DRAW MOVE ===
     const rawPoint = getDrawingPoint();
     if (!rawPoint) return;
 
@@ -374,14 +365,13 @@ export default function InteractionManager({
   };
 
   const handlePointerDown = (e: any) => {
-    if (mode === "VIEW") return;
-    if (e.button !== 0) return;
+    if (mode === "VIEW" || e.button !== 0) return;
     e.stopPropagation();
 
-    // === EXTRUDE ===
     if (mode === "EXTRUDE") {
-      if (extrudeShapeId) {
-        setExtrudeShapeId(null);
+      if (activeExtrudeId) {
+        onShapesCommit(); // ZAPISUJEMY HISTORIĘ PO KLIKNIĘCIU KOŃCZĄCYM
+        setActiveExtrudeId(null);
         setExtrudeStartY(null);
         setHoveredShapeId(null);
         setHeightSnapY(null);
@@ -394,7 +384,7 @@ export default function InteractionManager({
           if (targetShape) {
             setMouseDownPos({ x: pointer.x, y: pointer.y });
             setHasMoved(false);
-            setExtrudeShapeId(targetId);
+            setActiveExtrudeId(targetId);
             setExtrudeStartY(pointer.y);
             setInitialShapeHeight(targetShape.height || 0);
           }
@@ -403,10 +393,8 @@ export default function InteractionManager({
       return;
     }
 
-    // === DRAW ===
     if (mode === "DRAW_RECT" || mode === "CALIBRATE") {
       if (!startPoint) {
-        // === PIERWSZY KLIK ===
         if (mode === "DRAW_RECT") {
           const faceHit = getFaceHit();
           if (faceHit) {
@@ -417,7 +405,6 @@ export default function InteractionManager({
               faceDirection: faceHit.faceDirection,
               plane: faceHit.plane,
             });
-
             const finalPoint = isSnapEnabled
               ? getSnappedPosition(faceHit.point).point
               : faceHit.point.clone();
@@ -426,25 +413,21 @@ export default function InteractionManager({
             return;
           }
         }
-
         if (!snappedPoint) return;
         setDrawingFace(null);
         setStartPoint(snappedPoint);
       } else {
-        // === DRUGI KLIK ===
         const endPoint = snappedPoint || currentPoint;
         if (!endPoint) return;
 
         if (mode === "DRAW_RECT") {
           const p1 = startPoint;
           const p2 = endPoint;
-
           if (p1.distanceTo(p2) > 0.1) {
+            let newShape: DrawnShape;
             if (drawingFace) {
               const { orientation, parentId, faceOffset, faceDirection } =
                 drawingFace;
-              let newShape: DrawnShape;
-
               if (orientation === "xz") {
                 newShape = {
                   id: Math.random().toString(36),
@@ -496,7 +479,6 @@ export default function InteractionManager({
                   faceDirection,
                 };
               }
-
               onShapeAdd(newShape);
             } else {
               onShapeAdd({
@@ -517,7 +499,6 @@ export default function InteractionManager({
           const dist = startPoint.distanceTo(endPoint);
           if (dist > 0) onCalibrate(dist);
         }
-
         setStartPoint(null);
         setCurrentPoint(null);
         setDrawingFace(null);
@@ -530,26 +511,28 @@ export default function InteractionManager({
     if (mode !== "EXTRUDE") return;
     if (e.button !== 0) return;
 
-    if (extrudeShapeId && !hasMoved && mouseDownPos) {
-      setEditingShapeId(extrudeShapeId);
-      setExtrudeShapeId(null);
+    if (activeExtrudeId && mouseDownPos) {
+      if (!hasMoved) {
+        setEditingShapeId(activeExtrudeId);
+      } else {
+        onShapesCommit(); // ZAPISUJEMY HISTORIĘ PO PRZECIĄGANIU MYSZKĄ
+      }
+      setActiveExtrudeId(null);
       setExtrudeStartY(null);
       setHoveredShapeId(null);
       setHeightSnapY(null);
     }
-
     setMouseDownPos(null);
     setHasMoved(false);
   };
 
+  // Logika previewPoints pozostaje taka sama
   const previewPoints = useMemo(() => {
     if (!startPoint || !currentPoint || mode !== "DRAW_RECT") return null;
-
     if (drawingFace) {
       const p1 = startPoint;
       const p2 = currentPoint;
       const off = 0.1 * drawingFace.faceDirection;
-
       if (drawingFace.orientation === "xz") {
         const y = drawingFace.faceOffset + off;
         return [
@@ -579,7 +562,6 @@ export default function InteractionManager({
         ] as [number, number, number][];
       }
     }
-
     return [
       [startPoint.x, 0.5, startPoint.z],
       [currentPoint.x, 0.5, startPoint.z],
@@ -602,8 +584,6 @@ export default function InteractionManager({
       >
         <meshBasicMaterial />
       </mesh>
-
-      {/* Snap point */}
       {mode !== "VIEW" &&
         mode !== "EXTRUDE" &&
         snappedPoint &&
@@ -613,8 +593,6 @@ export default function InteractionManager({
             <meshBasicMaterial color="magenta" toneMapped={false} />
           </mesh>
         )}
-
-      {/* Height snap plane */}
       {mode === "EXTRUDE" && heightSnapY !== null && (
         <group position={[0, heightSnapY, 0]}>
           <gridHelper args={[1000, 10, "magenta", "magenta"]} />
@@ -630,8 +608,6 @@ export default function InteractionManager({
           </mesh>
         </group>
       )}
-
-      {/* Preview rectangle */}
       {previewPoints && (
         <Line
           points={previewPoints}
@@ -639,8 +615,6 @@ export default function InteractionManager({
           lineWidth={3}
         />
       )}
-
-      {/* Calibration line */}
       {startPoint && currentPoint && mode === "CALIBRATE" && (
         <Line
           points={[startPoint, currentPoint]}
@@ -650,8 +624,6 @@ export default function InteractionManager({
           dashScale={5}
         />
       )}
-
-      {/* Face highlight plane */}
       {drawingFace && mode === "DRAW_RECT" && (
         <mesh
           position={
