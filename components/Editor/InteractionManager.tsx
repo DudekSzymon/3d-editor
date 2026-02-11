@@ -249,7 +249,7 @@ export default function InteractionManager({
       closestDist = dist;
       closestPoint = intersection.clone();
       closestHit = {
-        parentId: getRootId(shape),
+        parentId: shape.id,
         orientation: bestFace.orient,
         faceOffset: bestFace.offset,
         faceDirection: bestFace.dir,

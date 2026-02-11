@@ -9,7 +9,7 @@ import { DrawnShape, getShapeBoxParams, isOutwardExtrusion } from "./types";
 interface ShapeRendererProps {
   shapes: DrawnShape[];
   hoveredShapeId?: string | null;
-  activeExtrudeId?: string | null; // Dodane, aby naprawić błąd TypeScript w Canvas3D
+  activeExtrudeId?: string | null;
 }
 
 const CSG_OVERLAP = 2.0;
@@ -113,10 +113,12 @@ function CSGShape({
   rootShape,
   holeChildren,
   hoveredShapeId,
+  outlineColor = "black",
 }: {
   rootShape: DrawnShape;
   holeChildren: DrawnShape[];
   hoveredShapeId?: string | null;
+  outlineColor?: string;
 }) {
   const isHovered =
     hoveredShapeId === rootShape.id ||
@@ -144,7 +146,7 @@ function CSGShape({
 
   return (
     <group>
-      <ShapeOutline shape={rootShape} color="black" />
+      <ShapeOutline shape={rootShape} color={outlineColor} />
       {holeChildren.map((child) => (
         <ShapeOutline
           key={`outline-${child.id}`}
@@ -167,7 +169,11 @@ function CSGShape({
           </lineSegments>
         </group>
       ) : (
-        <SolidBox shape={rootShape} isHovered={isHovered} />
+        <SolidBox
+          shape={rootShape}
+          isHovered={isHovered}
+          outlineColor={outlineColor}
+        />
       )}
     </group>
   );
@@ -179,31 +185,50 @@ export default function ShapeRenderer({
   activeExtrudeId,
 }: ShapeRendererProps) {
   const rootShapes = shapes.filter((s) => !s.parentId);
-  const childShapes = shapes.filter((s) => !!s.parentId);
 
-  const holeChildren = childShapes.filter(
-    (c) => Math.abs(c.height) < 0.01 || !isOutwardExtrusion(c),
-  );
-  const additionChildren = childShapes.filter(
-    (c) => Math.abs(c.height) >= 0.01 && isOutwardExtrusion(c),
+  // Funkcja pomocnicza do znajdowania wszystkich "dziur", które są potomkami danej bryły
+  // (dzieci, wnuki itd.) - to pozwala na efekt "SketchUp"
+  const getDescendantHoles = (parent: DrawnShape) => {
+    const holes: DrawnShape[] = [];
+    const findHoles = (pid: string) => {
+      const children = shapes.filter((s) => s.parentId === pid);
+      for (const child of children) {
+        const isHole =
+          Math.abs(child.height) < 0.01 || !isOutwardExtrusion(child);
+        if (isHole) {
+          holes.push(child);
+        }
+        // Przeszukujemy dalej w głąb (np. dziura w pudełku, które stoi na innym pudełku)
+        findHoles(child.id);
+      }
+    };
+    findHoles(parent.id);
+    return holes;
+  };
+
+  const additionChildren = shapes.filter(
+    (s) => s.parentId && Math.abs(s.height) >= 0.01 && isOutwardExtrusion(s),
   );
 
   return (
     <group>
+      {/* Bryły główne teraz wycinają w sobie wszystkie otwory swoich potomków */}
       {rootShapes.map((root) => (
         <CSGShape
           key={root.id}
           rootShape={root}
-          holeChildren={holeChildren.filter((h) => h.parentId === root.id)}
+          holeChildren={getDescendantHoles(root)}
           hoveredShapeId={hoveredShapeId}
         />
       ))}
 
+      {/* Bryły dobudowane teraz też wycinają w sobie otwory swoich potomków */}
       {additionChildren.map((child) => (
-        <SolidBox
+        <CSGShape
           key={child.id}
-          shape={child}
-          isHovered={hoveredShapeId === child.id}
+          rootShape={child}
+          holeChildren={getDescendantHoles(child)}
+          hoveredShapeId={hoveredShapeId}
           outlineColor="#2266ff"
         />
       ))}
