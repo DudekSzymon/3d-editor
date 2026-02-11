@@ -106,7 +106,7 @@ export default function InteractionManager({
       id: string;
       dist: number;
       isChild: boolean;
-      area: number;
+      area: number; // Dodajemy pole powierzchni, aby mniejsze obiekty wygrywały
     }
 
     const hits: HitInfo[] = [];
@@ -139,7 +139,6 @@ export default function InteractionManager({
 
     if (hits.length === 0) return null;
     hits.sort((a, b) => {
-      // Jeśli trafiliśmy w dwa obiekty blisko siebie (różnica < 20 jednostek)
       if (Math.abs(a.dist - b.dist) < 100.0) {
         if (a.isChild !== b.isChild) return a.isChild ? -1 : 1;
         return a.area - b.area;
