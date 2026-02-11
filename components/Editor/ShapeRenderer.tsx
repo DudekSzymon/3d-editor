@@ -14,6 +14,7 @@ interface ShapeRendererProps {
 
 const CSG_OVERLAP = 2.0;
 
+/** Tworzy Brush do operacji CSG */
 function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
   const { boxArgs, center } = getShapeBoxParams(shape);
   const orient = shape.orientation || "xz";
@@ -24,6 +25,7 @@ function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
 
   if (isHole) {
     const m = 0.5;
+    // Powiększenie obrysu dla czystego cięcia
     if (orient === "xz") {
       bx += m * 2;
       bz += m * 2;
@@ -34,6 +36,8 @@ function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
       by += m * 2;
       bz += m * 2;
     }
+
+    // Przebicie ścianki (Overlap)
     if (orient === "xz") {
       by += CSG_OVERLAP;
       y += (CSG_OVERLAP / 2) * faceDir;
@@ -53,7 +57,16 @@ function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
   return brush;
 }
 
-function ShapeOutline({ shape, color }: { shape: DrawnShape; color: string }) {
+/** Renderuje obrys kształtu z opcjonalną grubością linii */
+function ShapeOutline({
+  shape,
+  color,
+  lineWidth = 2,
+}: {
+  shape: DrawnShape;
+  color: string;
+  lineWidth?: number;
+}) {
   const orientation = shape.orientation || "xz";
   const baseY = shape.baseY || 0;
   const points = shape.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
@@ -67,12 +80,13 @@ function ShapeOutline({ shape, color }: { shape: DrawnShape; color: string }) {
     <Line
       points={[...points, points[0]]}
       color={color}
-      lineWidth={2}
+      lineWidth={lineWidth}
       position={orientation === "xz" ? [0, 0.05, 0] : [0, 0, 0]}
     />
   );
 }
 
+/** Renderuje bryłę bez wycięć (używane jako fallback lub dla podglądu) */
 function SolidBox({
   shape,
   isHovered,
@@ -109,6 +123,7 @@ function SolidBox({
   );
 }
 
+/** Główny komponent renderujący bryłę z wycięciami CSG */
 function CSGShape({
   rootShape,
   holeChildren,
@@ -120,20 +135,16 @@ function CSGShape({
   hoveredShapeId?: string | null;
   outlineColor?: string;
 }) {
-  const isHovered =
-    hoveredShapeId === rootShape.id ||
-    holeChildren.some((c) => c.id === hoveredShapeId);
+  const isRootHovered = hoveredShapeId === rootShape.id;
 
   const is3D = Math.abs(rootShape.height) > 0.01;
   const activeCuts = holeChildren.filter((c) => Math.abs(c.height) > 0.01);
 
   const csgGeometry = useMemo(() => {
     if (activeCuts.length === 0 || !is3D) return null;
-
     try {
       const evaluator = new Evaluator();
       let resultBrush = createBrushFromShape(rootShape, false);
-
       for (const child of activeCuts) {
         const childBrush = createBrushFromShape(child, true);
         resultBrush = evaluator.evaluate(resultBrush, childBrush, SUBTRACTION);
@@ -144,24 +155,31 @@ function CSGShape({
     }
   }, [rootShape, activeCuts, is3D]);
 
+  // Kolor bryły (zmienia się tylko jeśli najeżdżamy bezpośrednio na nią, a nie na jej otwór)
+  const color = isRootHovered ? "#cbd5e1" : "#e5e7eb";
+
   return (
     <group>
+      {/* Obrys bryły głównej */}
       <ShapeOutline shape={rootShape} color={outlineColor} />
-      {holeChildren.map((child) => (
-        <ShapeOutline
-          key={`outline-${child.id}`}
-          shape={child}
-          color="#ff4444"
-        />
-      ))}
+
+      {/* Obrysy otworów z podświetleniem (Amber jeśli hovered) */}
+      {holeChildren.map((child) => {
+        const isChildHovered = hoveredShapeId === child.id;
+        return (
+          <ShapeOutline
+            key={`outline-${child.id}`}
+            shape={child}
+            color={isChildHovered ? "#fbbf24" : "#ff4444"} // Żółty amber przy najechaniu
+            lineWidth={isChildHovered ? 4 : 2} // Grubsza linia przy najechaniu
+          />
+        );
+      })}
 
       {csgGeometry && is3D ? (
         <group>
           <mesh geometry={csgGeometry}>
-            <meshStandardMaterial
-              color={isHovered ? "#cbd5e1" : "#e5e7eb"}
-              side={THREE.DoubleSide}
-            />
+            <meshStandardMaterial color={color} side={THREE.DoubleSide} />
           </mesh>
           <lineSegments>
             <edgesGeometry args={[csgGeometry]} />
@@ -171,7 +189,7 @@ function CSGShape({
       ) : (
         <SolidBox
           shape={rootShape}
-          isHovered={isHovered}
+          isHovered={isRootHovered}
           outlineColor={outlineColor}
         />
       )}
@@ -186,8 +204,7 @@ export default function ShapeRenderer({
 }: ShapeRendererProps) {
   const rootShapes = shapes.filter((s) => !s.parentId);
 
-  // Funkcja pomocnicza do znajdowania wszystkich "dziur", które są potomkami danej bryły
-  // (dzieci, wnuki itd.) - to pozwala na efekt "SketchUp"
+  // Funkcja rekurencyjna do znajdowania wszystkich dziur potomnych (SketchUp-style)
   const getDescendantHoles = (parent: DrawnShape) => {
     const holes: DrawnShape[] = [];
     const findHoles = (pid: string) => {
@@ -198,7 +215,6 @@ export default function ShapeRenderer({
         if (isHole) {
           holes.push(child);
         }
-        // Przeszukujemy dalej w głąb (np. dziura w pudełku, które stoi na innym pudełku)
         findHoles(child.id);
       }
     };
@@ -212,7 +228,7 @@ export default function ShapeRenderer({
 
   return (
     <group>
-      {/* Bryły główne teraz wycinają w sobie wszystkie otwory swoich potomków */}
+      {/* Renderowanie brył bazowych */}
       {rootShapes.map((root) => (
         <CSGShape
           key={root.id}
@@ -222,7 +238,7 @@ export default function ShapeRenderer({
         />
       ))}
 
-      {/* Bryły dobudowane teraz też wycinają w sobie otwory swoich potomków */}
+      {/* Renderowanie brył dobudowanych (niebieski obrys) */}
       {additionChildren.map((child) => (
         <CSGShape
           key={child.id}

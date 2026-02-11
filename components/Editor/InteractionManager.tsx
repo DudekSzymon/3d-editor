@@ -106,28 +106,23 @@ export default function InteractionManager({
       id: string;
       dist: number;
       isChild: boolean;
+      area: number;
     }
 
     const hits: HitInfo[] = [];
 
     for (const shape of shapes) {
       const { boxArgs, center } = getShapeBoxParams(shape);
-      const halfW = boxArgs[0] / 2;
-      const halfH = boxArgs[1] / 2;
-      const halfD = boxArgs[2] / 2;
+      const isHole = !!shape.parentId;
+      const hMargin = isHole ? 15.0 : 0.5;
+      const vMargin = 0.5;
 
-      const flatEps = Math.abs(shape.height) < 0.1 ? 3.0 : 0;
-
-      const box = new THREE.Box3(
+      const box = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(center.x, center.y, center.z),
         new THREE.Vector3(
-          center.x - halfW - flatEps,
-          center.y - halfH - flatEps,
-          center.z - halfD - flatEps,
-        ),
-        new THREE.Vector3(
-          center.x + halfW + flatEps,
-          center.y + halfH + flatEps,
-          center.z + halfD + flatEps,
+          boxArgs[0] + hMargin,
+          boxArgs[1] + (isHole ? vMargin : 0.5),
+          boxArgs[2] + hMargin,
         ),
       );
 
@@ -136,25 +131,23 @@ export default function InteractionManager({
         hits.push({
           id: shape.id,
           dist: intersection.distanceTo(raycaster.ray.origin),
-          isChild: !!shape.parentId,
+          isChild: isHole,
+          area: boxArgs[0] * boxArgs[2],
         });
       }
     }
 
     if (hits.length === 0) return null;
+    hits.sort((a, b) => {
+      // Jeśli trafiliśmy w dwa obiekty blisko siebie (różnica < 20 jednostek)
+      if (Math.abs(a.dist - b.dist) < 100.0) {
+        if (a.isChild !== b.isChild) return a.isChild ? -1 : 1;
+        return a.area - b.area;
+      }
+      return a.dist - b.dist;
+    });
 
-    hits.sort((a, b) => a.dist - b.dist);
-
-    const closest = hits[0];
-
-    if (!closest.isChild) {
-      const nearbyChild = hits.find(
-        (h) => h.isChild && Math.abs(h.dist - closest.dist) < 5.0,
-      );
-      if (nearbyChild) return nearbyChild.id;
-    }
-
-    return closest.id;
+    return hits[0].id;
   }, [shapes, camera, raycaster, pointer]);
 
   const getFaceHit = useCallback(() => {
