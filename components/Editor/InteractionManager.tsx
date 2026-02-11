@@ -21,7 +21,6 @@ interface InteractionManagerProps {
   isSnapEnabled: boolean;
   editingShapeId: string | null;
   setEditingShapeId: (id: string | null) => void;
-  // NOWE PROPSY DO OBSŁUGI HISTORII I PŁYNNOŚCI
   activeExtrudeId: string | null;
   setActiveExtrudeId: (id: string | null) => void;
   onShapesCommit: () => void;
@@ -59,7 +58,6 @@ export default function InteractionManager({
 
   const [drawingFace, setDrawingFace] = useState<DrawingFaceState | null>(null);
 
-  // UWAGA: Usunęliśmy lokalny extrudeShapeId, teraz używamy activeExtrudeId z propsów
   const [extrudeStartY, setExtrudeStartY] = useState<number | null>(null);
   const [initialShapeHeight, setInitialShapeHeight] = useState<number>(0);
   const [mouseDownPos, setMouseDownPos] = useState<{
@@ -69,7 +67,6 @@ export default function InteractionManager({
   const [hasMoved, setHasMoved] = useState(false);
   const [heightSnapY, setHeightSnapY] = useState<number | null>(null);
 
-  // === NAPRAWA "WISZĄCYCH" LINII (ESC / ZMIANA TRYBU) ===
   useEffect(() => {
     setStartPoint(null);
     setCurrentPoint(null);
@@ -309,6 +306,56 @@ export default function InteractionManager({
       if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
     }
 
+    if (
+      mode === "EXTRUDE" &&
+      editingShapeId &&
+      mouseDownPos &&
+      hasMoved &&
+      !activeExtrudeId
+    ) {
+      const shape = shapes.find((s) => s.id === editingShapeId);
+      if (shape) {
+        // Tworzymy wirtualną płaszczyznę na której leży podstawa bryły
+        const plane = new THREE.Plane();
+        const orient = shape.orientation || "xz";
+        if (orient === "xz")
+          plane.set(new THREE.Vector3(0, 1, 0), -(shape.baseY || 0));
+        else if (orient === "xy")
+          plane.set(new THREE.Vector3(0, 0, 1), -(shape.faceOffset || 0));
+        else plane.set(new THREE.Vector3(1, 0, 0), -(shape.faceOffset || 0));
+
+        const intersection = new THREE.Vector3();
+        raycaster.setFromCamera(pointer, camera);
+
+        if (raycaster.ray.intersectPlane(plane, intersection)) {
+          // Jeśli mamy punkt startowy ruchu, obliczamy przesunięcie (delta)
+          if (lastSnapRef.current) {
+            const delta = intersection.clone().sub(lastSnapRef.current);
+
+            if (delta.length() > 0.01) {
+              const newPoints = shape.points.map((p) => [
+                p[0] + delta.x,
+                p[1] + delta.y,
+                p[2] + delta.z,
+              ]);
+
+              onShapeUpdate(editingShapeId, {
+                points: newPoints as [number, number, number][],
+              });
+
+              // Aktualizujemy punkt referencyjny na obecny
+              lastSnapRef.current = intersection.clone();
+            }
+          } else {
+            // Inicjalizacja punktu startowego przy pierwszym ruchu
+            lastSnapRef.current = intersection.clone();
+          }
+          return;
+        }
+      }
+    }
+
+    // TRYB EXTRUDE - WYCIĄGANIE WYSOKOŚCI (ISTNIEJĄCE)
     if (mode === "EXTRUDE" && activeExtrudeId && extrudeStartY !== null) {
       const deltaY = (pointer.y - extrudeStartY) * 120;
       let newHeight = initialShapeHeight + deltaY;
@@ -362,24 +409,37 @@ export default function InteractionManager({
 
     if (mode === "EXTRUDE") {
       if (activeExtrudeId) {
-        onShapesCommit(); // ZAPISUJEMY HISTORIĘ PO KLIKNIĘCIU KOŃCZĄCYM
+        onShapesCommit();
         setActiveExtrudeId(null);
         setExtrudeStartY(null);
         setHoveredShapeId(null);
         setHeightSnapY(null);
         setMouseDownPos(null);
         setHasMoved(false);
-      } else if (!editingShapeId) {
+        lastSnapRef.current = null;
+      } else {
         const targetId = getHoveredShapeId3D();
+
         if (targetId) {
           const targetShape = shapes.find((s) => s.id === targetId);
           if (targetShape) {
             setMouseDownPos({ x: pointer.x, y: pointer.y });
             setHasMoved(false);
-            setActiveExtrudeId(targetId);
-            setExtrudeStartY(pointer.y);
-            setInitialShapeHeight(targetShape.height || 0);
+
+            const rawPoint = getDrawingPoint();
+            if (rawPoint) {
+              lastSnapRef.current = rawPoint.clone();
+            }
+
+            if (!editingShapeId) {
+              setActiveExtrudeId(targetId);
+              setExtrudeStartY(pointer.y);
+              setInitialShapeHeight(targetShape.height || 0);
+            }
           }
+        } else {
+          setEditingShapeId(null);
+          lastSnapRef.current = null;
         }
       }
       return;
@@ -503,22 +563,23 @@ export default function InteractionManager({
     if (mode !== "EXTRUDE") return;
     if (e.button !== 0) return;
 
-    if (activeExtrudeId && mouseDownPos) {
-      if (!hasMoved) {
-        setEditingShapeId(activeExtrudeId);
-      } else {
-        onShapesCommit(); // ZAPISUJEMY HISTORIĘ PO PRZECIĄGANIU MYSZKĄ
-      }
-      setActiveExtrudeId(null);
-      setExtrudeStartY(null);
-      setHoveredShapeId(null);
-      setHeightSnapY(null);
+    if (mouseDownPos && hasMoved) {
+      onShapesCommit();
     }
+
+    if (activeExtrudeId && mouseDownPos && !hasMoved) {
+      setEditingShapeId(activeExtrudeId);
+    }
+
+    setActiveExtrudeId(null);
+    setExtrudeStartY(null);
+    setHoveredShapeId(null);
+    setHeightSnapY(null);
     setMouseDownPos(null);
     setHasMoved(false);
+    lastSnapRef.current = null;
   };
 
-  // Logika previewPoints pozostaje taka sama
   const previewPoints = useMemo(() => {
     if (!startPoint || !currentPoint || mode !== "DRAW_RECT") return null;
     if (drawingFace) {

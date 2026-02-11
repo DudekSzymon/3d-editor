@@ -7,6 +7,7 @@ interface HeightInputPanelProps {
   currentBaseY: number;
   onApply: (height: number, baseY: number) => void;
   onCancel: () => void;
+  onMove: (dx: number, dy: number, dz: number) => void; // Nowy prop do przesuwania
   orientation?: "xz" | "xy" | "yz";
   faceDirection?: number;
   isChild?: boolean;
@@ -17,12 +18,14 @@ export default function HeightInputPanel({
   currentBaseY,
   onApply,
   onCancel,
+  onMove,
   orientation = "xz",
   faceDirection,
   isChild = false,
 }: HeightInputPanelProps) {
   const [heightValue, setHeightValue] = useState(currentHeight.toString());
   const [baseYValue, setBaseYValue] = useState(currentBaseY.toString());
+  const [moveStep, setMoveStep] = useState(5); // Krok przesunięcia w mm
   const heightInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -43,6 +46,30 @@ export default function HeightInputPanel({
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       onCancel();
+    }
+  };
+
+  // Logika mapowania przycisków na osie 3D w zależności od orientacji ściany
+  const handleMoveClick = (dir: "up" | "down" | "left" | "right") => {
+    const s = moveStep;
+    if (orientation === "xz") {
+      // Podłoga/Sufit: góra/dół to oś Z, lewo/prawo to oś X
+      if (dir === "up") onMove(0, 0, -s);
+      if (dir === "down") onMove(0, 0, s);
+      if (dir === "left") onMove(-s, 0, 0);
+      if (dir === "right") onMove(s, 0, 0);
+    } else if (orientation === "xy") {
+      // Ściana front/tył: góra/dół to oś Y, lewo/prawo to oś X
+      if (dir === "up") onMove(0, s, 0);
+      if (dir === "down") onMove(0, -s, 0);
+      if (dir === "left") onMove(-s, 0, 0);
+      if (dir === "right") onMove(s, 0, 0);
+    } else if (orientation === "yz") {
+      // Ściana lewo/prawo: góra/dół to oś Y, lewo/prawo to oś Z
+      if (dir === "up") onMove(0, s, 0);
+      if (dir === "down") onMove(0, -s, 0);
+      if (dir === "left") onMove(0, 0, s);
+      if (dir === "right") onMove(0, 0, -s);
     }
   };
 
@@ -70,52 +97,55 @@ export default function HeightInputPanel({
     }
   };
 
-  const getDirectionHint = () => {
-    if (!isChild || !faceDirection) return null;
-
-    const dir = faceDirection;
-    const faceName =
-      orientation === "xz"
-        ? dir > 0
-          ? "góra"
-          : "dół"
-        : orientation === "xy"
-          ? dir > 0
-            ? "przód"
-            : "tył"
-          : dir > 0
-            ? "prawo"
-            : "lewo";
-
-    return (
-      <div className="mb-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-        <div className="font-semibold mb-1">Ściana: {faceName}</div>
-        <div>
-          (+) wartość →{" "}
-          <span className="font-bold text-green-700">na zewnątrz</span> =
-          dodanie bryły
-        </div>
-        <div>
-          (−) wartość →{" "}
-          <span className="font-bold text-red-700">do wewnątrz</span> = wycięcie
-          dziury
-        </div>
-      </div>
-    );
-  };
-
   return (
     <div className="absolute top-20 left-4 bg-white shadow-xl border-2 border-blue-500 rounded-lg p-4 z-50 w-72">
-      <h3 className="text-sm font-bold text-gray-800 mb-3">
-        Edycja figury
+      <h3 className="text-sm font-bold text-gray-800 mb-3 flex justify-between items-center">
+        <span>Edycja figury</span>
         {isChild && (
-          <span className="ml-2 text-xs font-normal text-orange-600">
-            (na ścianie)
+          <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded">
+            NA ŚCIANIE
           </span>
         )}
       </h3>
 
-      {getDirectionHint()}
+      {/* Sekcja przesuwania (D-Pad) */}
+      <div className="mb-6 p-3 bg-gray-50 rounded-md border border-gray-200">
+        <label className="block text-[10px] font-bold text-gray-500 uppercase mb-2 text-center">
+          Przesuń element (krok {moveStep}mm)
+        </label>
+        <div className="grid grid-cols-3 gap-1 w-32 mx-auto">
+          <div />
+          <button
+            type="button"
+            onClick={() => handleMoveClick("up")}
+            className="p-2 bg-white hover:bg-blue-500 hover:text-white border rounded shadow-sm transition-all"
+          >
+            ▲
+          </button>
+          <div />
+          <button
+            type="button"
+            onClick={() => handleMoveClick("left")}
+            className="p-2 bg-white hover:bg-blue-500 hover:text-white border rounded shadow-sm transition-all"
+          >
+            ◀
+          </button>
+          <button
+            type="button"
+            onClick={() => handleMoveClick("down")}
+            className="p-2 bg-white hover:bg-blue-500 hover:text-white border rounded shadow-sm transition-all"
+          >
+            ▼
+          </button>
+          <button
+            type="button"
+            onClick={() => handleMoveClick("right")}
+            className="p-2 bg-white hover:bg-blue-500 hover:text-white border rounded shadow-sm transition-all"
+          >
+            ▶
+          </button>
+        </div>
+      </div>
 
       <form onSubmit={handleSubmit}>
         {!isChild && (
@@ -155,13 +185,13 @@ export default function HeightInputPanel({
             onClick={onCancel}
             className="flex-1 px-4 py-2 text-sm text-gray-600 bg-gray-100 hover:bg-gray-200 rounded transition-colors"
           >
-            Anuluj (Esc)
+            Anuluj
           </button>
           <button
             type="submit"
             className="flex-1 px-4 py-2 text-sm bg-blue-600 text-white hover:bg-blue-700 rounded transition-colors font-semibold"
           >
-            Zastosuj (Enter)
+            Zastosuj
           </button>
         </div>
       </form>

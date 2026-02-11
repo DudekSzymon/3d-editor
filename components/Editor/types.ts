@@ -22,21 +22,12 @@ export interface DrawnShape {
   faceDirection?: number; // +1 = top/front/right, -1 = bottom/back/left
 }
 
-/**
- * Czy kształt-dziecko wyciąga się NA ZEWNĄTRZ rodzica?
- *   height * faceDirection > 0  →  na zewnątrz  →  ADDITION (niezależna bryła)
- *   height * faceDirection < 0  →  do wewnątrz   →  SUBTRACTION (wycięcie CSG)
- *   height == 0                 →  jeszcze nie wyciągnięty
- */
 export function isOutwardExtrusion(shape: DrawnShape): boolean {
   if (!shape.parentId) return false;
   const dir = shape.faceDirection ?? 1;
   return shape.height * dir > 0;
 }
 
-/**
- * Oblicza parametry geometrii Box dla dowolnej orientacji kształtu.
- */
 export function getShapeBoxParams(shape: DrawnShape) {
   const orientation = shape.orientation || "xz";
 

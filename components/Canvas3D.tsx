@@ -208,6 +208,22 @@ export default function Canvas3D() {
     );
   };
 
+  const handleShapeMove = (id: string, dx: number, dy: number, dz: number) => {
+    setShapes((prev) =>
+      prev.map((s) => {
+        if (s.id !== id) return s;
+        return {
+          ...s,
+          points: s.points.map((p) => [p[0] + dx, p[1] + dy, p[2] + dz]) as [
+            number,
+            number,
+            number,
+          ][],
+        };
+      }),
+    );
+  };
+
   // Wywoływane przez InteractionManager po puszczeniu myszki
   const handleShapesCommit = () => {
     saveToHistory(shapes);
@@ -348,6 +364,7 @@ export default function Canvas3D() {
           orientation={editingShape.orientation}
           faceDirection={editingShape.faceDirection}
           isChild={!!editingShape.parentId}
+          onMove={(dx, dy, dz) => handleShapeMove(editingShape.id, dx, dy, dz)}
         />
       )}
 
