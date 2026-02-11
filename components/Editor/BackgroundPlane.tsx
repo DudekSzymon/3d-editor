@@ -4,8 +4,12 @@ import { useLoader } from "@react-three/fiber";
 import { useMemo } from "react";
 import * as THREE from "three";
 import { SUBTRACTION, Brush, Evaluator } from "three-bvh-csg";
+<<<<<<< HEAD
 import { BackgroundImageData } from "./types";
 import { DrawnShape } from "./types";
+=======
+import { BackgroundImageData, DrawnShape, getShapeBoxParams } from "./types";
+>>>>>>> master
 
 interface BackgroundPlaneProps {
   data: BackgroundImageData;
@@ -22,16 +26,25 @@ export default function BackgroundPlane({
     const baseGeo = new THREE.PlaneGeometry(data.width, data.height);
     baseGeo.rotateX(-Math.PI / 2);
 
+<<<<<<< HEAD
     const holes = shapes.filter((s) => s.height < 0);
 
     if (holes.length === 0) {
       return baseGeo;
     }
+=======
+    const holes = shapes.filter(
+      (s) => !s.parentId && (s.orientation || "xz") === "xz" && s.height < 0,
+    );
+
+    if (holes.length === 0) return baseGeo;
+>>>>>>> master
 
     const evaluator = new Evaluator();
     let resultBrush = new Brush(baseGeo);
 
     for (const hole of holes) {
+<<<<<<< HEAD
       const x1 = hole.points[0][0];
       const z1 = hole.points[0][2];
       const x2 = hole.points[2][0];
@@ -47,6 +60,13 @@ export default function BackgroundPlane({
       holeBrush.position.set(centerX, 0, centerZ);
       holeBrush.updateMatrixWorld();
 
+=======
+      const { boxArgs, center } = getShapeBoxParams(hole);
+      const holeGeo = new THREE.BoxGeometry(boxArgs[0], 10, boxArgs[2]);
+      const holeBrush = new Brush(holeGeo);
+      holeBrush.position.set(center.x, 0, center.z);
+      holeBrush.updateMatrixWorld();
+>>>>>>> master
       resultBrush.updateMatrixWorld();
       resultBrush = evaluator.evaluate(resultBrush, holeBrush, SUBTRACTION);
     }

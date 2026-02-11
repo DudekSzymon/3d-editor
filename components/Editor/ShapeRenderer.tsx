@@ -1,108 +1,247 @@
 "use client";
 
+import { useMemo } from "react";
 import * as THREE from "three";
 import { Line } from "@react-three/drei";
-import { DrawnShape } from "./types";
+import { SUBTRACTION, Brush, Evaluator } from "three-bvh-csg";
+import { DrawnShape, getShapeBoxParams, isOutwardExtrusion } from "./types";
 
 interface ShapeRendererProps {
   shapes: DrawnShape[];
   hoveredShapeId?: string | null;
+  activeExtrudeId?: string | null;
+}
+
+const CSG_OVERLAP = 2.0;
+
+function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
+  const { boxArgs, center } = getShapeBoxParams(shape);
+  const orient = shape.orientation || "xz";
+  const faceDir = shape.faceDirection ?? 1;
+
+  let [bx, by, bz] = boxArgs;
+  let { x, y, z } = center;
+
+  if (isHole) {
+    const m = 0.5;
+    if (orient === "xz") {
+      bx += m * 2;
+      bz += m * 2;
+    } else if (orient === "xy") {
+      bx += m * 2;
+      by += m * 2;
+    } else {
+      by += m * 2;
+      bz += m * 2;
+    }
+
+    // Przebicie ścianki (Overlap)
+    if (orient === "xz") {
+      by += CSG_OVERLAP;
+      y += (CSG_OVERLAP / 2) * faceDir;
+    } else if (orient === "xy") {
+      bz += CSG_OVERLAP;
+      z += (CSG_OVERLAP / 2) * faceDir;
+    } else {
+      bx += CSG_OVERLAP;
+      x += (CSG_OVERLAP / 2) * faceDir;
+    }
+  }
+
+  const geo = new THREE.BoxGeometry(bx, by, bz);
+  const brush = new Brush(geo);
+  brush.position.set(x, y, z);
+  brush.updateMatrixWorld();
+  return brush;
+}
+
+function ShapeOutline({
+  shape,
+  color,
+  lineWidth = 2,
+}: {
+  shape: DrawnShape;
+  color: string;
+  lineWidth?: number;
+}) {
+  const orientation = shape.orientation || "xz";
+  const baseY = shape.baseY || 0;
+  const points = shape.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
+
+  if (orientation === "xz") points.forEach((p) => (p.y = baseY));
+  else if (orientation === "xy")
+    points.forEach((p) => (p.z = shape.faceOffset || 0));
+  else points.forEach((p) => (p.x = shape.faceOffset || 0));
+
+  return (
+    <Line
+      points={[...points, points[0]]}
+      color={color}
+      lineWidth={lineWidth}
+      position={orientation === "xz" ? [0, 0.05, 0] : [0, 0, 0]}
+    />
+  );
+}
+
+function SolidBox({
+  shape,
+  isHovered,
+  outlineColor = "black",
+}: {
+  shape: DrawnShape;
+  isHovered: boolean;
+  outlineColor?: string;
+}) {
+  const { boxArgs, center } = getShapeBoxParams(shape);
+  const is3D = Math.abs(shape.height) > 0.01;
+  const color = isHovered ? "#cbd5e1" : "#e5e7eb";
+
+  return (
+    <group>
+      <ShapeOutline shape={shape} color={outlineColor} />
+      <mesh position={[center.x, center.y, center.z]}>
+        <boxGeometry args={boxArgs} />
+        <meshStandardMaterial
+          color={color}
+          transparent={!is3D}
+          opacity={is3D ? 1 : 0.15}
+          side={THREE.DoubleSide}
+          depthWrite={is3D}
+        />
+      </mesh>
+      {is3D && (
+        <lineSegments position={[center.x, center.y, center.z]}>
+          <edgesGeometry args={[new THREE.BoxGeometry(...boxArgs)]} />
+          <lineBasicMaterial color="#000000" />
+        </lineSegments>
+      )}
+    </group>
+  );
+}
+
+/** Główny komponent renderujący bryłę z wycięciami CSG */
+function CSGShape({
+  rootShape,
+  holeChildren,
+  hoveredShapeId,
+  outlineColor = "black",
+}: {
+  rootShape: DrawnShape;
+  holeChildren: DrawnShape[];
+  hoveredShapeId?: string | null;
+  outlineColor?: string;
+}) {
+  const isRootHovered = hoveredShapeId === rootShape.id;
+
+  const is3D = Math.abs(rootShape.height) > 0.01;
+  const activeCuts = holeChildren.filter((c) => Math.abs(c.height) > 0.01);
+
+  const csgGeometry = useMemo(() => {
+    if (activeCuts.length === 0 || !is3D) return null;
+    try {
+      const evaluator = new Evaluator();
+      let resultBrush = createBrushFromShape(rootShape, false);
+      for (const child of activeCuts) {
+        const childBrush = createBrushFromShape(child, true);
+        resultBrush = evaluator.evaluate(resultBrush, childBrush, SUBTRACTION);
+      }
+      return resultBrush.geometry;
+    } catch (e) {
+      return null;
+    }
+  }, [rootShape, activeCuts, is3D]);
+
+  const color = isRootHovered ? "#cbd5e1" : "#e5e7eb";
+
+  return (
+    <group>
+      {/* Obrys bryły głównej */}
+      <ShapeOutline shape={rootShape} color={outlineColor} />
+
+      {/* Obrysy otworów z podświetleniem (Amber jeśli hovered) */}
+      {holeChildren.map((child) => {
+        const isChildHovered = hoveredShapeId === child.id;
+        return (
+          <ShapeOutline
+            key={`outline-${child.id}`}
+            shape={child}
+            color={isChildHovered ? "#fbbf24" : "#ff4444"}
+            lineWidth={isChildHovered ? 4 : 2}
+          />
+        );
+      })}
+
+      {csgGeometry && is3D ? (
+        <group>
+          <mesh geometry={csgGeometry}>
+            <meshStandardMaterial color={color} side={THREE.DoubleSide} />
+          </mesh>
+          <lineSegments>
+            <edgesGeometry args={[csgGeometry]} />
+            <lineBasicMaterial color="#000000" />
+          </lineSegments>
+        </group>
+      ) : (
+        <SolidBox
+          shape={rootShape}
+          isHovered={isRootHovered}
+          outlineColor={outlineColor}
+        />
+      )}
+    </group>
+  );
 }
 
 export default function ShapeRenderer({
   shapes,
   hoveredShapeId,
+  activeExtrudeId,
 }: ShapeRendererProps) {
+  const rootShapes = shapes.filter((s) => !s.parentId);
+
+  const getDescendantHoles = (parent: DrawnShape) => {
+    const holes: DrawnShape[] = [];
+    const findHoles = (pid: string) => {
+      const children = shapes.filter((s) => s.parentId === pid);
+      for (const child of children) {
+        const isHole =
+          Math.abs(child.height) < 0.01 || !isOutwardExtrusion(child);
+        if (isHole) {
+          holes.push(child);
+        }
+        findHoles(child.id);
+      }
+    };
+    findHoles(parent.id);
+    return holes;
+  };
+
+  const additionChildren = shapes.filter(
+    (s) => s.parentId && Math.abs(s.height) >= 0.01 && isOutwardExtrusion(s),
+  );
+
   return (
     <group>
-      {shapes.map((shape) => {
-        const x1 = shape.points[0][0];
-        const z1 = shape.points[0][2];
-        const x2 = shape.points[2][0];
-        const z2 = shape.points[2][2];
+      {/* Renderowanie brył bazowych */}
+      {rootShapes.map((root) => (
+        <CSGShape
+          key={root.id}
+          rootShape={root}
+          holeChildren={getDescendantHoles(root)}
+          hoveredShapeId={hoveredShapeId}
+        />
+      ))}
 
-        const width = Math.abs(x1 - x2);
-        const depth = Math.abs(z1 - z2);
-        const centerX = (x1 + x2) / 2;
-        const centerZ = (z1 + z2) / 2;
-
-        const height = shape.height || 0;
-        const baseY = shape.baseY || 0; // NOWE: Pozycja podstawy
-        const is3D = Math.abs(height) > 0.01;
-        const isNegative = height < 0;
-        const centerY = baseY + height / 2; // Środek bryły = baseY + połowa wysokości
-        const isHovered = hoveredShapeId === shape.id;
-
-        const baseColor = "#e5e7eb";
-        const hoverColor = "#cbd5e1";
-        const finalColor = isHovered ? hoverColor : baseColor;
-
-        const edgeColor = "#000000";
-        const edgeOpacity = 1.0;
-
-        const materialProps = {
-          color: finalColor,
-          transparent: !is3D,
-          opacity: is3D ? 1.0 : 0.2,
-          side: THREE.DoubleSide,
-          roughness: 1.0,
-          metalness: 0.0,
-        };
-
-        return (
-          <group key={shape.id}>
-            {/* OBRYS PODSTAWY (Na poziomie baseY) */}
-            <Line
-              points={[
-                ...shape.points.map(
-                  (p) => new THREE.Vector3(p[0], baseY, p[2]),
-                ),
-                new THREE.Vector3(
-                  shape.points[0][0],
-                  baseY,
-                  shape.points[0][2],
-                ),
-              ]}
-              color="black"
-              lineWidth={2}
-              position={[0, 0.05, 0]}
-            />
-
-            {/* BRYŁA */}
-            <mesh position={[centerX, centerY, centerZ]}>
-              <boxGeometry args={[width, Math.abs(height) || 0.01, depth]} />
-
-              <meshStandardMaterial attach="material-0" {...materialProps} />
-              <meshStandardMaterial attach="material-1" {...materialProps} />
-
-              <meshStandardMaterial
-                attach="material-2"
-                {...materialProps}
-                visible={!isNegative}
-              />
-
-              <meshStandardMaterial attach="material-3" {...materialProps} />
-              <meshStandardMaterial attach="material-4" {...materialProps} />
-              <meshStandardMaterial attach="material-5" {...materialProps} />
-            </mesh>
-
-            {/* WYRAŹNE CZARNE KRAWĘDZIE 3D */}
-            {is3D && (
-              <lineSegments position={[centerX, centerY, centerZ]}>
-                <edgesGeometry
-                  args={[new THREE.BoxGeometry(width, Math.abs(height), depth)]}
-                />
-                <lineBasicMaterial
-                  color={edgeColor}
-                  linewidth={1}
-                  opacity={edgeOpacity}
-                  transparent={false}
-                />
-              </lineSegments>
-            )}
-          </group>
-        );
-      })}
+      {/* Renderowanie brył dobudowanych (niebieski obrys) */}
+      {additionChildren.map((child) => (
+        <CSGShape
+          key={child.id}
+          rootShape={child}
+          holeChildren={getDescendantHoles(child)}
+          hoveredShapeId={hoveredShapeId}
+          outlineColor="#2266ff"
+        />
+      ))}
     </group>
   );
 }
