@@ -1,6 +1,11 @@
 import { ImageInfoPanelData } from "../UI/ImageInfoPanel";
 
-export type EditorMode = "VIEW" | "CALIBRATE" | "DRAW_RECT" | "EXTRUDE";
+export type EditorMode =
+  | "VIEW"
+  | "CALIBRATE"
+  | "DRAW_RECT"
+  | "EXTRUDE"
+  | "PLACE_SPHERE";
 
 export type ShapeOrientation = "xz" | "xy" | "yz";
 
@@ -10,10 +15,14 @@ export interface BackgroundImageData extends ImageInfoPanelData {
 
 export interface DrawnShape {
   id: string;
-  type: "rect";
-  points: [number, number, number][]; // 4 narożniki prostokąta bazowego
-  height: number; // Wysokość/głębokość wyciągnięcia
-  baseY: number; // Dla 'xz': pozycja Y podstawy
+  type: "rect" | "sphere";
+  points: [number, number, number][]; // 4 narożniki prostokąta bazowego (tylko dla rect)
+  height: number; // Wysokość/głębokość wyciągnięcia (dla rect)
+  baseY: number; // Dla 'xz': pozycja Y podstawy (dla rect)
+
+  // Parametry dla sfery
+  radius?: number; // Promień kuli
+  center?: [number, number, number]; // Środek kuli [x, y, z]
 
   // Rysowanie na ścianach
   parentId?: string; // ID rodzica (jeśli narysowane na innej bryle)
@@ -29,6 +38,22 @@ export function isOutwardExtrusion(shape: DrawnShape): boolean {
 }
 
 export function getShapeBoxParams(shape: DrawnShape) {
+  if (shape.type === "sphere") {
+    const r = shape.radius || 10;
+    const center = shape.center || [0, r, 0];
+    return {
+      boxArgs: [r * 2, r * 2, r * 2] as [number, number, number],
+      center: {
+        x: center[0],
+        y: center[1],
+        z: center[2],
+      },
+      width: r * 2,
+      depth: r * 2,
+      absHeight: r * 2,
+    };
+  }
+
   const orientation = shape.orientation || "xz";
 
   if (orientation === "xz") {

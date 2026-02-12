@@ -39,7 +39,6 @@ interface SceneContentProps {
   isSnapEnabled: boolean;
   editingShapeId: string | null;
   setEditingShapeId: (id: string | null) => void;
-  // Nowe propsy do obsługi wycinania i historii
   activeExtrudeId: string | null;
   setActiveExtrudeId: (id: string | null) => void;
   onShapesCommit: () => void;
@@ -104,7 +103,6 @@ function SceneContent({
         <BackgroundPlane data={backgroundImage} shapes={shapes} />
       )}
 
-      {/* Przekazujemy activeExtrudeId, aby ShapeRenderer wiedział, co wyłączyć z CSG podczas ruchu */}
       <ShapeRenderer
         shapes={shapes}
         hoveredShapeId={hoveredShapeId}
@@ -153,7 +151,6 @@ export default function Canvas3D() {
     useState<BackgroundImageData | null>(null);
   const [shapes, setShapes] = useState<DrawnShape[]>([]);
 
-  // Historia i stany edycji
   const [history, setHistory] = useState<DrawnShape[][]>([[]]);
   const [historyIndex, setHistoryIndex] = useState(0);
   const [activeExtrudeId, setActiveExtrudeId] = useState<string | null>(null);
@@ -172,7 +169,6 @@ export default function Canvas3D() {
 
   const handleReset = () => resetFunctionRef.current?.();
 
-  // == LOGIKA HISTORII ==
   const saveToHistory = useCallback(
     (newShapes: DrawnShape[]) => {
       const nextHistory = history.slice(0, historyIndex + 1);
@@ -200,7 +196,6 @@ export default function Canvas3D() {
     }
   }, [history, historyIndex]);
 
-  // Handlery zmian kształtów
   const handleShapeAdd = (shape: DrawnShape) => {
     const newShapes = [...shapes, shape];
     saveToHistory(newShapes);
@@ -216,6 +211,21 @@ export default function Canvas3D() {
     setShapes((prev) =>
       prev.map((s) => {
         if (s.id !== id) return s;
+
+        if (s.type === "sphere") {
+          // Przesuwanie sfery
+          const center = s.center || [0, s.radius || 10, 0];
+          return {
+            ...s,
+            center: [center[0] + dx, center[1] + dy, center[2] + dz] as [
+              number,
+              number,
+              number,
+            ],
+          };
+        }
+
+        // Przesuwanie prostokąta
         return {
           ...s,
           points: s.points.map((p) => [p[0] + dx, p[1] + dy, p[2] + dz]) as [
@@ -228,12 +238,10 @@ export default function Canvas3D() {
     );
   };
 
-  // Wywoływane przez InteractionManager po puszczeniu myszki
   const handleShapesCommit = () => {
     saveToHistory(shapes);
   };
 
-  // Obsługa klawiatury
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -308,6 +316,8 @@ export default function Canvas3D() {
     baseY: number;
     newWidth?: number;
     newDepth?: number;
+    radius?: number;
+    center?: [number, number, number];
   }) => {
     if (!editingShapeId) return;
 
@@ -316,74 +326,76 @@ export default function Canvas3D() {
 
     let updatedShape = { ...shape };
 
-    // 1. Najpierw zmień wysokość i baseY
-    updatedShape.height = updates.height;
-    updatedShape.baseY = updates.baseY;
-
-    // 2. Jeśli są nowe wymiary, przeskaluj punkty
-    if (updates.newWidth !== undefined && updates.newDepth !== undefined) {
-      const { width: oldWidth, depth: oldDepth } = getShapeBoxParams(shape);
-      const scaleW = updates.newWidth / oldWidth;
-      const scaleD = updates.newDepth / oldDepth;
-
-      const orientation = shape.orientation || "xz";
-
-      // Znajdź środek prostokąta
-      let centerX = 0,
-        centerY = 0,
-        centerZ = 0;
-
-      if (orientation === "xz") {
-        // Dla poziomych: środek w X i Z
-        centerX = (shape.points[0][0] + shape.points[2][0]) / 2;
-        centerZ = (shape.points[0][2] + shape.points[2][2]) / 2;
-        centerY = shape.baseY || 0;
-      } else if (orientation === "xy") {
-        // Dla pionowych front/back: środek w X i Y
-        centerX = (shape.points[0][0] + shape.points[2][0]) / 2;
-        centerY = (shape.points[0][1] + shape.points[2][1]) / 2;
-        centerZ = shape.faceOffset || 0;
-      } else {
-        // yz - boczne ściany: środek w Y i Z
-        centerY = (shape.points[0][1] + shape.points[2][1]) / 2;
-        centerZ = (shape.points[0][2] + shape.points[2][2]) / 2;
-        centerX = shape.faceOffset || 0;
+    if (shape.type === "sphere") {
+      // Edycja sfery
+      if (updates.radius !== undefined) {
+        updatedShape.radius = updates.radius;
       }
+      if (updates.center !== undefined) {
+        updatedShape.center = updates.center;
+      }
+    } else {
+      // Edycja prostokąta
+      updatedShape.height = updates.height;
+      updatedShape.baseY = updates.baseY;
 
-      // Przeskaluj punkty względem środka
-      const newPoints = shape.points.map((p) => {
+      if (updates.newWidth !== undefined && updates.newDepth !== undefined) {
+        const { width: oldWidth, depth: oldDepth } = getShapeBoxParams(shape);
+        const scaleW = updates.newWidth / oldWidth;
+        const scaleD = updates.newDepth / oldDepth;
+
+        const orientation = shape.orientation || "xz";
+
+        let centerX = 0,
+          centerY = 0,
+          centerZ = 0;
+
         if (orientation === "xz") {
-          const dx = p[0] - centerX;
-          const dz = p[2] - centerZ;
-          return [centerX + dx * scaleW, p[1], centerZ + dz * scaleD] as [
-            number,
-            number,
-            number,
-          ];
+          centerX = (shape.points[0][0] + shape.points[2][0]) / 2;
+          centerZ = (shape.points[0][2] + shape.points[2][2]) / 2;
+          centerY = shape.baseY || 0;
         } else if (orientation === "xy") {
-          const dx = p[0] - centerX;
-          const dy = p[1] - centerY;
-          return [centerX + dx * scaleW, centerY + dy * scaleD, p[2]] as [
-            number,
-            number,
-            number,
-          ];
+          centerX = (shape.points[0][0] + shape.points[2][0]) / 2;
+          centerY = (shape.points[0][1] + shape.points[2][1]) / 2;
+          centerZ = shape.faceOffset || 0;
         } else {
-          // yz
-          const dy = p[1] - centerY;
-          const dz = p[2] - centerZ;
-          return [p[0], centerY + dy * scaleD, centerZ + dz * scaleW] as [
-            number,
-            number,
-            number,
-          ];
+          centerY = (shape.points[0][1] + shape.points[2][1]) / 2;
+          centerZ = (shape.points[0][2] + shape.points[2][2]) / 2;
+          centerX = shape.faceOffset || 0;
         }
-      });
 
-      updatedShape.points = newPoints;
+        const newPoints = shape.points.map((p) => {
+          if (orientation === "xz") {
+            const dx = p[0] - centerX;
+            const dz = p[2] - centerZ;
+            return [centerX + dx * scaleW, p[1], centerZ + dz * scaleD] as [
+              number,
+              number,
+              number,
+            ];
+          } else if (orientation === "xy") {
+            const dx = p[0] - centerX;
+            const dy = p[1] - centerY;
+            return [centerX + dx * scaleW, centerY + dy * scaleD, p[2]] as [
+              number,
+              number,
+              number,
+            ];
+          } else {
+            const dy = p[1] - centerY;
+            const dz = p[2] - centerZ;
+            return [p[0], centerY + dy * scaleD, centerZ + dz * scaleW] as [
+              number,
+              number,
+              number,
+            ];
+          }
+        });
+
+        updatedShape.points = newPoints;
+      }
     }
 
-    // 3. Zapisz zmiany
     const newShapes = shapes.map((s) =>
       s.id === editingShapeId ? updatedShape : s,
     );
@@ -394,6 +406,19 @@ export default function Canvas3D() {
   const editingShape = editingShapeId
     ? shapes.find((s) => s.id === editingShapeId)
     : null;
+
+  const getModeLabel = () => {
+    switch (mode) {
+      case "DRAW_RECT":
+        return "RYSOWANIE: Kliknij podłogę lub ścianę bryły, potem drugi narożnik";
+      case "EXTRUDE":
+        return "WYCIĄGANIE: Ciągnij figurę myszą lub kliknij aby wpisać wartość";
+      case "PLACE_SPHERE":
+        return "KULKA: Kliknij aby umieścić kulkę, przeciągnij aby zmienić rozmiar";
+      default:
+        return "";
+    }
+  };
 
   return (
     <div className="w-screen h-screen bg-white relative select-none">
@@ -422,7 +447,6 @@ export default function Canvas3D() {
           isSnapEnabled={isSnapEnabled}
           editingShapeId={editingShapeId}
           setEditingShapeId={setEditingShapeId}
-          // Przekazujemy nowe propsy do SceneContent
           activeExtrudeId={activeExtrudeId}
           setActiveExtrudeId={setActiveExtrudeId}
           onShapesCommit={handleShapesCommit}
@@ -453,10 +477,7 @@ export default function Canvas3D() {
 
       {mode !== "VIEW" && (
         <div className="absolute top-4 left-24 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded shadow-lg z-20 text-sm font-bold animate-pulse">
-          {mode === "DRAW_RECT" &&
-            "RYSOWANIE: Kliknij podłogę lub ścianę bryły, potem drugi narożnik"}
-          {mode === "EXTRUDE" &&
-            "WYCIĄGANIE: Ciągnij figurę myszą lub kliknij aby wpisać wartość"}
+          {getModeLabel()}
         </div>
       )}
     </div>

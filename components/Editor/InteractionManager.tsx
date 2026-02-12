@@ -10,6 +10,11 @@ import {
   ShapeOrientation,
   getShapeBoxParams,
 } from "./types";
+import {
+  handleSpherePointerDown,
+  handleSpherePointerUp,
+  calculateNewRadius,
+} from "./sphereHandlers";
 
 interface InteractionManagerProps {
   mode: EditorMode;
@@ -73,6 +78,11 @@ export default function InteractionManager({
   const [dragMode, setDragMode] = useState<DragMode>(null);
   const [dragDirection, setDragDirection] = useState<number>(0);
 
+  // Stany dla umieszczania sfery
+  const [placingSphereId, setPlacingSphereId] = useState<string | null>(null);
+  const [sphereStartPoint, setSphereStartPoint] =
+    useState<THREE.Vector3 | null>(null);
+
   useEffect(() => {
     setStartPoint(null);
     setCurrentPoint(null);
@@ -83,6 +93,8 @@ export default function InteractionManager({
     setMouseDownPos(null);
     setHasMoved(false);
     setDragMode(null);
+    setPlacingSphereId(null);
+    setSphereStartPoint(null);
   }, [mode, setActiveExtrudeId]);
 
   const invisiblePlaneGeo = useMemo(
@@ -161,6 +173,8 @@ export default function InteractionManager({
     let closestPoint: THREE.Vector3 | null = null;
 
     for (const shape of shapes) {
+      // Pomijamy sfery - tylko prostokąty z wysokością
+      if (shape.type === "sphere") continue;
       if (!shape.height || Math.abs(shape.height) < 0.01) continue;
 
       const { boxArgs, center } = getShapeBoxParams(shape);
@@ -266,6 +280,18 @@ export default function InteractionManager({
     }
 
     for (const shape of shapes) {
+      if (shape.type === "sphere") {
+        // Dla sfer sprawdzamy środek
+        const center = shape.center || [0, 0, 0];
+        const centerPt = new THREE.Vector3(center[0], center[1], center[2]);
+        const dist = centerPt.distanceTo(rawPoint);
+        if (dist < snapThreshold && dist < closestDist) {
+          closestDist = dist;
+          closestPt = centerPt;
+        }
+        continue;
+      }
+
       for (const ptArr of shape.points) {
         const orient = shape.orientation || "xz";
         let pt: THREE.Vector3;
@@ -313,6 +339,20 @@ export default function InteractionManager({
       if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
     }
 
+    // PLACE_SPHERE: podczas przeciągania zmieniamy promień (logika w sphereHandlers.ts)
+    if (
+      mode === "PLACE_SPHERE" &&
+      placingSphereId &&
+      sphereStartPoint &&
+      hasMoved
+    ) {
+      if (!mouseDownPos) return;
+
+      const newRadius = calculateNewRadius(mouseDownPos.y, pointer.y);
+      onShapeUpdate(placingSphereId, { radius: newRadius });
+      return;
+    }
+
     if (
       mode === "EXTRUDE" &&
       editingShapeId &&
@@ -338,15 +378,25 @@ export default function InteractionManager({
           const delta = intersection.clone().sub(lastSnapRef.current);
 
           if (delta.length() > 0.01) {
-            const newPoints = shape.points.map((p) => [
-              p[0] + delta.x,
-              p[1] + delta.y,
-              p[2] + delta.z,
-            ]);
-
-            onShapeUpdate(editingShapeId, {
-              points: newPoints as [number, number, number][],
-            });
+            if (shape.type === "sphere") {
+              // Przesuwanie sfery
+              const newCenter: [number, number, number] = [
+                shape.center![0] + delta.x,
+                shape.center![1] + delta.y,
+                shape.center![2] + delta.z,
+              ];
+              onShapeUpdate(editingShapeId, { center: newCenter });
+            } else {
+              // Przesuwanie prostokąta
+              const newPoints = shape.points.map((p) => [
+                p[0] + delta.x,
+                p[1] + delta.y,
+                p[2] + delta.z,
+              ]);
+              onShapeUpdate(editingShapeId, {
+                points: newPoints as [number, number, number][],
+              });
+            }
 
             lastSnapRef.current = intersection.clone();
           }
@@ -357,29 +407,39 @@ export default function InteractionManager({
 
     if (mode === "EXTRUDE" && activeExtrudeId && hasMoved) {
       if (dragMode === "HEIGHT" && extrudeStartY !== null) {
-        //Prędkość przesuwania do góry
-        const deltaY = (pointer.y - extrudeStartY) * 150;
-        let newHeight = initialShapeHeight + deltaY;
+        const shape = shapes.find((s) => s.id === activeExtrudeId);
+        if (!shape) return;
 
+        const deltaY = (pointer.y - extrudeStartY) * 150;
+        let newValue = initialShapeHeight + deltaY;
+
+        // Dla sfer - edytujemy promień (minimum 1mm)
+        if (shape.type === "sphere") {
+          newValue = Math.max(1, newValue);
+          onShapeUpdate(activeExtrudeId, { radius: newValue });
+          return;
+        }
+
+        // Dla prostokątów - edytujemy height ze snapowaniem
         const snapThreshold = 1.0;
         let snappedH: number | null = null;
 
-        for (const shape of shapes) {
-          if (shape.id === activeExtrudeId) continue;
-          const h = shape.height || 0;
+        for (const s of shapes) {
+          if (s.id === activeExtrudeId) continue;
+          const h = s.height || 0;
           if (Math.abs(h) < 0.1) continue;
-          if (Math.abs(newHeight - h) < snapThreshold) {
-            newHeight = h;
+          if (Math.abs(newValue - h) < snapThreshold) {
+            newValue = h;
             snappedH = h;
             break;
           }
         }
-        if (snappedH === null && Math.abs(newHeight) < snapThreshold) {
-          newHeight = 0;
+        if (snappedH === null && Math.abs(newValue) < snapThreshold) {
+          newValue = 0;
           snappedH = 0;
         }
         setHeightSnapY(snappedH);
-        onShapeUpdate(activeExtrudeId, { height: newHeight });
+        onShapeUpdate(activeExtrudeId, { height: newValue });
         return;
       }
 
@@ -416,7 +476,6 @@ export default function InteractionManager({
                   ? p[0] > center.x - 0.1
                   : p[0] < center.x + 0.1;
 
-              //Prędkość przesuwania na boki
               if (isTargetSide) {
                 p[0] += delta.x * 1.5;
               }
@@ -446,6 +505,23 @@ export default function InteractionManager({
 
     if (mode === "VIEW") return;
 
+    // PLACE_SPHERE: pokazujemy podgląd pozycji
+    if (mode === "PLACE_SPHERE" && !placingSphereId) {
+      const rawPoint = getDrawingPoint();
+      if (!rawPoint) return;
+
+      const finalPoint = isSnapEnabled
+        ? getSnappedPosition(rawPoint).point
+        : rawPoint.clone();
+
+      if (!lastSnapRef.current || !finalPoint.equals(lastSnapRef.current)) {
+        lastSnapRef.current = finalPoint;
+        setSnappedPoint(finalPoint);
+        setCurrentPoint(finalPoint);
+      }
+      return;
+    }
+
     const rawPoint = getDrawingPoint();
     if (!rawPoint) return;
 
@@ -463,6 +539,51 @@ export default function InteractionManager({
   const handlePointerDown = (e: any) => {
     if (mode === "VIEW" || e.button !== 0) return;
     e.stopPropagation();
+
+    // PLACE_SPHERE: umieszczanie nowej sfery (logika w sphereHandlers.ts)
+    if (mode === "PLACE_SPHERE") {
+      const result = handleSpherePointerDown({
+        editingShapeId,
+        placingSphereId,
+        hoveredId: getHoveredShapeId3D(),
+        hoveredShape: shapes.find((s) => s.id === getHoveredShapeId3D()),
+        faceHit: getFaceHit(),
+        rawPoint: getDrawingPoint(),
+        isSnapEnabled,
+        getSnappedPosition,
+      });
+
+      switch (result.action) {
+        case "CLOSE_PANEL":
+          setEditingShapeId(null);
+          return;
+
+        case "COMMIT":
+          onShapesCommit();
+          setPlacingSphereId(null);
+          setSphereStartPoint(null);
+          setMouseDownPos(null);
+          setHasMoved(false);
+          return;
+
+        case "EDIT":
+          setEditingShapeId(result.shapeId!);
+          return;
+
+        case "CREATE":
+          if (result.newSphere && result.point) {
+            onShapeAdd(result.newSphere);
+            setPlacingSphereId(result.newSphere.id);
+            setSphereStartPoint(result.point);
+            setMouseDownPos({ x: pointer.x, y: pointer.y });
+            setHasMoved(false);
+          }
+          return;
+
+        case "NONE":
+          return;
+      }
+    }
 
     if (mode === "EXTRUDE") {
       if (activeExtrudeId) {
@@ -510,7 +631,10 @@ export default function InteractionManager({
               let detectedMode: DragMode = null;
               let detectedDir = 0;
 
-              if (Math.abs(targetShape.height) < 0.05) {
+              if (targetShape.type === "sphere") {
+                // Dla sfery zawsze HEIGHT (zmiana promienia)
+                detectedMode = "HEIGHT";
+              } else if (Math.abs(targetShape.height) < 0.05) {
                 detectedMode = "HEIGHT";
               } else {
                 const orient = targetShape.orientation || "xz";
@@ -550,7 +674,11 @@ export default function InteractionManager({
             if (!editingShapeId) {
               setActiveExtrudeId(targetId);
               setExtrudeStartY(pointer.y);
-              setInitialShapeHeight(targetShape.height || 0);
+              if (targetShape.type === "sphere") {
+                setInitialShapeHeight(targetShape.radius || 10);
+              } else {
+                setInitialShapeHeight(targetShape.height || 0);
+              }
             }
           }
         } else {
@@ -676,6 +804,31 @@ export default function InteractionManager({
   };
 
   const handlePointerUp = (e: any) => {
+    if (mode === "PLACE_SPHERE") {
+      const result = handleSpherePointerUp({
+        placingSphereId,
+        hasMoved,
+      });
+
+      switch (result.action) {
+        case "COMMIT":
+          onShapesCommit();
+          setPlacingSphereId(null);
+          setSphereStartPoint(null);
+          break;
+
+        case "OPEN_EDIT_PANEL":
+          setEditingShapeId(result.shapeId!);
+          setPlacingSphereId(null);
+          setSphereStartPoint(null);
+          break;
+      }
+
+      setMouseDownPos(null);
+      setHasMoved(false);
+      return;
+    }
+
     if (mode !== "EXTRUDE") return;
     if (e.button !== 0) return;
 

@@ -6,6 +6,7 @@ import {
   FaImage,
   FaCompressArrowsAlt,
   FaCube,
+  FaCircle,
 } from "react-icons/fa";
 import { EditorMode } from "../Editor/types";
 
@@ -44,6 +45,7 @@ export default function Toolbar({
     { id: "VIEW", icon: FaMousePointer, label: "Widok" },
     { id: "DRAW_RECT", icon: FaVectorSquare, label: "Rysuj" },
     { id: "EXTRUDE", icon: FaCube, label: "Wyciągnij" },
+    { id: "PLACE_SPHERE", icon: FaCircle, label: "Obiekt" },
   ] as const;
 
   return (

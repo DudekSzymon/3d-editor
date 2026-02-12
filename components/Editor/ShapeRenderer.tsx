@@ -35,7 +35,6 @@ function createBrushFromShape(shape: DrawnShape, isHole: boolean): Brush {
       bz += m * 2;
     }
 
-    // Przebicie ścianki (Overlap)
     if (orient === "xz") {
       by += CSG_OVERLAP;
       y += (CSG_OVERLAP / 2) * faceDir;
@@ -64,6 +63,11 @@ function ShapeOutline({
   color: string;
   lineWidth?: number;
 }) {
+  if (shape.type === "sphere") {
+    // Dla sfery nie rysujemy outline
+    return null;
+  }
+
   const orientation = shape.orientation || "xz";
   const baseY = shape.baseY || 0;
   const points = shape.points.map((p) => new THREE.Vector3(p[0], p[1], p[2]));
@@ -119,6 +123,32 @@ function SolidBox({
   );
 }
 
+/** Komponent renderujący sferę */
+function SphereShape({
+  shape,
+  hoveredShapeId,
+}: {
+  shape: DrawnShape;
+  hoveredShapeId?: string | null;
+}) {
+  const isHovered = hoveredShapeId === shape.id;
+  const radius = shape.radius || 10;
+  const center = shape.center || [0, radius, 0];
+  const color = isHovered ? "#ff6b6b" : "#ff0000";
+
+  return (
+    <mesh position={[center[0], center[1], center[2]]}>
+      <sphereGeometry args={[radius, 32, 32]} />
+      <meshStandardMaterial
+        color={color}
+        transparent
+        opacity={0.7}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  );
+}
+
 /** Główny komponent renderujący bryłę z wycięciami CSG */
 function CSGShape({
   rootShape,
@@ -155,10 +185,8 @@ function CSGShape({
 
   return (
     <group>
-      {/* Obrys bryły głównej */}
       <ShapeOutline shape={rootShape} color={outlineColor} />
 
-      {/* Obrysy otworów z podświetleniem (Amber jeśli hovered) */}
       {holeChildren.map((child) => {
         const isChildHovered = hoveredShapeId === child.id;
         return (
@@ -220,17 +248,22 @@ export default function ShapeRenderer({
     (s) => s.parentId && Math.abs(s.height) >= 0.01 && isOutwardExtrusion(s),
   );
 
+  // Osobna grupa dla sfer
+  const sphereShapes = shapes.filter((s) => s.type === "sphere");
+
   return (
     <group>
-      {/* Renderowanie brył bazowych */}
-      {rootShapes.map((root) => (
-        <CSGShape
-          key={root.id}
-          rootShape={root}
-          holeChildren={getDescendantHoles(root)}
-          hoveredShapeId={hoveredShapeId}
-        />
-      ))}
+      {/* Renderowanie brył bazowych (nie-sfery) */}
+      {rootShapes
+        .filter((s) => s.type !== "sphere")
+        .map((root) => (
+          <CSGShape
+            key={root.id}
+            rootShape={root}
+            holeChildren={getDescendantHoles(root)}
+            hoveredShapeId={hoveredShapeId}
+          />
+        ))}
 
       {/* Renderowanie brył dobudowanych (niebieski obrys) */}
       {additionChildren.map((child) => (
@@ -240,6 +273,15 @@ export default function ShapeRenderer({
           holeChildren={getDescendantHoles(child)}
           hoveredShapeId={hoveredShapeId}
           outlineColor="#2266ff"
+        />
+      ))}
+
+      {/* Renderowanie wszystkich sfer */}
+      {sphereShapes.map((sphere) => (
+        <SphereShape
+          key={sphere.id}
+          shape={sphere}
+          hoveredShapeId={hoveredShapeId}
         />
       ))}
     </group>

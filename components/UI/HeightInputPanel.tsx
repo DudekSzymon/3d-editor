@@ -12,6 +12,8 @@ interface HeightInputPanelProps {
     baseY: number;
     newWidth?: number;
     newDepth?: number;
+    radius?: number;
+    center?: [number, number, number];
   }) => void;
   onCancel: () => void;
   onMove: (dx: number, dy: number, dz: number) => void;
@@ -31,6 +33,8 @@ export default function HeightInputPanel({
   faceDirection,
   isChild = false,
 }: HeightInputPanelProps) {
+  const isSphere = shape.type === "sphere";
+
   const { width: currentWidth, depth: currentDepth } = useMemo(() => {
     return getShapeBoxParams(shape);
   }, [shape]);
@@ -41,35 +45,78 @@ export default function HeightInputPanel({
   const [depthValue, setDepthValue] = useState(currentDepth.toFixed(2));
   const [moveStep, setMoveStep] = useState(1);
 
+  // Stany dla sfery
+  const [radiusValue, setRadiusValue] = useState(
+    (shape.radius || 10).toFixed(2),
+  );
+  const [centerX, setCenterX] = useState((shape.center?.[0] || 0).toFixed(2));
+  const [centerY, setCenterY] = useState(
+    (shape.center?.[1] || shape.radius || 10).toFixed(2),
+  );
+  const [centerZ, setCenterZ] = useState((shape.center?.[2] || 0).toFixed(2));
+
   const heightInputRef = useRef<HTMLInputElement>(null);
+  const radiusInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setHeightValue(currentHeight.toFixed(2));
-    setBaseYValue(currentBaseY.toFixed(2));
-    setWidthValue(currentWidth.toFixed(2));
-    setDepthValue(currentDepth.toFixed(2));
-    setTimeout(() => heightInputRef.current?.select(), 50);
-  }, [currentHeight, currentBaseY, currentWidth, currentDepth]);
+    if (isSphere) {
+      setRadiusValue((shape.radius || 10).toFixed(2));
+      setCenterX((shape.center?.[0] || 0).toFixed(2));
+      setCenterY((shape.center?.[1] || shape.radius || 10).toFixed(2));
+      setCenterZ((shape.center?.[2] || 0).toFixed(2));
+      setTimeout(() => radiusInputRef.current?.select(), 50);
+    } else {
+      setHeightValue(currentHeight.toFixed(2));
+      setBaseYValue(currentBaseY.toFixed(2));
+      setWidthValue(currentWidth.toFixed(2));
+      setDepthValue(currentDepth.toFixed(2));
+      setTimeout(() => heightInputRef.current?.select(), 50);
+    }
+  }, [
+    currentHeight,
+    currentBaseY,
+    currentWidth,
+    currentDepth,
+    isSphere,
+    shape,
+  ]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const height = parseFloat(heightValue);
-    const baseY = parseFloat(baseYValue);
-    const newWidth = parseFloat(widthValue);
-    const newDepth = parseFloat(depthValue);
 
-    if (
-      !isNaN(height) &&
-      !isNaN(baseY) &&
-      !isNaN(newWidth) &&
-      !isNaN(newDepth)
-    ) {
-      onApply({
-        height,
-        baseY,
-        newWidth,
-        newDepth,
-      });
+    if (isSphere) {
+      const radius = parseFloat(radiusValue);
+      const cx = parseFloat(centerX);
+      const cy = parseFloat(centerY);
+      const cz = parseFloat(centerZ);
+
+      if (!isNaN(radius) && !isNaN(cx) && !isNaN(cy) && !isNaN(cz)) {
+        onApply({
+          height: 0,
+          baseY: 0,
+          radius,
+          center: [cx, cy, cz],
+        });
+      }
+    } else {
+      const height = parseFloat(heightValue);
+      const baseY = parseFloat(baseYValue);
+      const newWidth = parseFloat(widthValue);
+      const newDepth = parseFloat(depthValue);
+
+      if (
+        !isNaN(height) &&
+        !isNaN(baseY) &&
+        !isNaN(newWidth) &&
+        !isNaN(newDepth)
+      ) {
+        onApply({
+          height,
+          baseY,
+          newWidth,
+          newDepth,
+        });
+      }
     }
   };
 
@@ -81,21 +128,29 @@ export default function HeightInputPanel({
 
   const handleMoveClick = (dir: "up" | "down" | "left" | "right") => {
     const s = moveStep;
-    if (orientation === "xz") {
-      if (dir === "up") onMove(0, 0, -s);
-      if (dir === "down") onMove(0, 0, s);
-      if (dir === "left") onMove(-s, 0, 0);
-      if (dir === "right") onMove(s, 0, 0);
-    } else if (orientation === "xy") {
+    if (isSphere) {
+      // Dla sfery: up/down = Y, left/right = X (Z pozostaje bez zmian)
       if (dir === "up") onMove(0, s, 0);
       if (dir === "down") onMove(0, -s, 0);
       if (dir === "left") onMove(-s, 0, 0);
       if (dir === "right") onMove(s, 0, 0);
-    } else if (orientation === "yz") {
-      if (dir === "up") onMove(0, s, 0);
-      if (dir === "down") onMove(0, -s, 0);
-      if (dir === "left") onMove(0, 0, s);
-      if (dir === "right") onMove(0, 0, -s);
+    } else {
+      if (orientation === "xz") {
+        if (dir === "up") onMove(0, 0, -s);
+        if (dir === "down") onMove(0, 0, s);
+        if (dir === "left") onMove(-s, 0, 0);
+        if (dir === "right") onMove(s, 0, 0);
+      } else if (orientation === "xy") {
+        if (dir === "up") onMove(0, s, 0);
+        if (dir === "down") onMove(0, -s, 0);
+        if (dir === "left") onMove(-s, 0, 0);
+        if (dir === "right") onMove(s, 0, 0);
+      } else if (orientation === "yz") {
+        if (dir === "up") onMove(0, s, 0);
+        if (dir === "down") onMove(0, -s, 0);
+        if (dir === "left") onMove(0, 0, s);
+        if (dir === "right") onMove(0, 0, -s);
+      }
     }
   };
 
@@ -148,8 +203,13 @@ export default function HeightInputPanel({
   return (
     <div className="absolute top-20 left-4 bg-white shadow-xl border-2 border-blue-500 rounded-lg p-4 z-50 w-80 max-h-[calc(100vh-100px)] overflow-y-auto">
       <h3 className="text-sm font-bold text-gray-800 mb-3 flex justify-between items-center">
-        <span>Panel Edycji</span>
-        {isChild && (
+        <span>{isSphere ? "Edycja Kulki" : "Panel Edycji"}</span>
+        {isSphere && (
+          <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded">
+            KAMERA
+          </span>
+        )}
+        {!isSphere && isChild && (
           <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded">
             NA ŚCIANIE
           </span>
@@ -159,37 +219,68 @@ export default function HeightInputPanel({
       {/* AKTUALNE WYMIARY - tylko do odczytu */}
       <div className="mb-4 p-3 bg-gray-50 rounded-md border border-gray-300">
         <label className="block text-[10px] font-bold text-gray-600 uppercase mb-2 text-center">
-          Aktualne wymiary
+          {isSphere ? "Aktualne parametry" : "Aktualne wymiary"}
         </label>
-        <div className="grid grid-cols-3 gap-2 text-center">
-          <div>
-            <div className="text-[9px] text-gray-500 font-semibold">
-              Szerokość
+        {isSphere ? (
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <div>
+              <div className="text-[9px] text-gray-500 font-semibold">
+                Promień
+              </div>
+              <div className="text-sm font-mono font-bold text-gray-700">
+                {(shape.radius || 10).toFixed(1)}
+              </div>
             </div>
-            <div className="text-sm font-mono font-bold text-gray-700">
-              {currentWidth.toFixed(1)}
+            <div>
+              <div className="text-[9px] text-gray-500 font-semibold">X</div>
+              <div className="text-sm font-mono font-bold text-gray-700">
+                {(shape.center?.[0] || 0).toFixed(1)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[9px] text-gray-500 font-semibold">Y</div>
+              <div className="text-sm font-mono font-bold text-gray-700">
+                {(shape.center?.[1] || shape.radius || 10).toFixed(1)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[9px] text-gray-500 font-semibold">Z</div>
+              <div className="text-sm font-mono font-bold text-gray-700">
+                {(shape.center?.[2] || 0).toFixed(1)}
+              </div>
             </div>
           </div>
-          <div>
-            <div className="text-[9px] text-gray-500 font-semibold">
-              Głębokość
+        ) : (
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div>
+              <div className="text-[9px] text-gray-500 font-semibold">
+                Szerokość
+              </div>
+              <div className="text-sm font-mono font-bold text-gray-700">
+                {currentWidth.toFixed(1)}
+              </div>
             </div>
-            <div className="text-sm font-mono font-bold text-gray-700">
-              {currentDepth.toFixed(1)}
+            <div>
+              <div className="text-[9px] text-gray-500 font-semibold">
+                Głębokość
+              </div>
+              <div className="text-sm font-mono font-bold text-gray-700">
+                {currentDepth.toFixed(1)}
+              </div>
+            </div>
+            <div>
+              <div className="text-[9px] text-gray-500 font-semibold">
+                Wysokość
+              </div>
+              <div className="text-sm font-mono font-bold text-gray-700">
+                {Math.abs(currentHeight).toFixed(1)}
+              </div>
             </div>
           </div>
-          <div>
-            <div className="text-[9px] text-gray-500 font-semibold">
-              Wysokość
-            </div>
-            <div className="text-sm font-mono font-bold text-gray-700">
-              {Math.abs(currentHeight).toFixed(1)}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Sekcja przesuwania (D-Pad) - ORYGINALNA BEZ ZMIAN */}
+      {/* Sekcja przesuwania (D-Pad) */}
       <div className="mb-6 p-3 bg-gray-50 rounded-md border border-gray-200">
         <label className="block text-[10px] font-bold text-gray-500 uppercase mb-2 text-center">
           Przesuń element (krok {moveStep}mm)
@@ -229,78 +320,145 @@ export default function HeightInputPanel({
       </div>
 
       <form onSubmit={handleSubmit}>
-        {/* NOWE WYMIARY - do edycji */}
-        <div className="mb-4 p-3 bg-green-50 rounded-md border border-green-300">
-          <label className="block text-[10px] font-bold text-green-700 uppercase mb-3 text-center">
-            Zmień wymiary (mm)
-          </label>
+        {isSphere ? (
+          // PANEL DLA SFERY
+          <div className="mb-4 p-3 bg-red-50 rounded-md border border-red-300">
+            <label className="block text-[10px] font-bold text-red-700 uppercase mb-3 text-center">
+              Parametry kulki (mm)
+            </label>
 
-          <div className="grid grid-cols-2 gap-2 mb-2">
-            {/* Szerokość */}
-            <div>
+            {/* Promień */}
+            <div className="mb-3">
               <label className="block text-[10px] font-semibold text-gray-700 mb-1">
-                {getWidthLabel()}
+                Promień (mm)
               </label>
               <input
+                ref={radiusInputRef}
                 type="number"
                 step="0.01"
                 min="0.1"
-                value={widthValue}
-                onChange={(e) => setWidthValue(e.target.value)}
+                value={radiusValue}
+                onChange={(e) => setRadiusValue(e.target.value)}
                 onKeyDown={handleKeyDown}
-                className="w-full border-2 border-green-300 rounded px-2 py-2 text-center text-base font-mono font-bold focus:border-green-500 focus:outline-none bg-white text-black"
+                className="w-full border-2 border-red-300 rounded px-2 py-2 text-center text-base font-mono font-bold focus:border-red-500 focus:outline-none bg-white text-black"
               />
             </div>
 
-            {/* Głębokość */}
-            <div>
-              <label className="block text-[10px] font-semibold text-gray-700 mb-1">
-                {getDepthLabel()}
+            {/* Pozycje X, Y, Z */}
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-700 mb-1">
+                  Pozycja X
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={centerX}
+                  onChange={(e) => setCenterX(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full border-2 border-red-300 rounded px-2 py-2 text-center text-sm font-mono font-bold focus:border-red-500 focus:outline-none bg-white text-black"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-700 mb-1">
+                  Pozycja Y
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={centerY}
+                  onChange={(e) => setCenterY(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full border-2 border-red-300 rounded px-2 py-2 text-center text-sm font-mono font-bold focus:border-red-500 focus:outline-none bg-white text-black"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-700 mb-1">
+                  Pozycja Z
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={centerZ}
+                  onChange={(e) => setCenterZ(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full border-2 border-red-300 rounded px-2 py-2 text-center text-sm font-mono font-bold focus:border-red-500 focus:outline-none bg-white text-black"
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          // PANEL DLA PROSTOKĄTÓW
+          <>
+            <div className="mb-4 p-3 bg-green-50 rounded-md border border-green-300">
+              <label className="block text-[10px] font-bold text-green-700 uppercase mb-3 text-center">
+                Zmień wymiary (mm)
               </label>
-              <input
-                type="number"
-                step="0.01"
-                min="0.1"
-                value={depthValue}
-                onChange={(e) => setDepthValue(e.target.value)}
-                onKeyDown={handleKeyDown}
-                className="w-full border-2 border-green-300 rounded px-2 py-2 text-center text-base font-mono font-bold focus:border-green-500 focus:outline-none bg-white text-black"
-              />
+
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                  <label className="block text-[10px] font-semibold text-gray-700 mb-1">
+                    {getWidthLabel()}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.1"
+                    value={widthValue}
+                    onChange={(e) => setWidthValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="w-full border-2 border-green-300 rounded px-2 py-2 text-center text-base font-mono font-bold focus:border-green-500 focus:outline-none bg-white text-black"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[10px] font-semibold text-gray-700 mb-1">
+                    {getDepthLabel()}
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.1"
+                    value={depthValue}
+                    onChange={(e) => setDepthValue(e.target.value)}
+                    onKeyDown={handleKeyDown}
+                    className="w-full border-2 border-green-300 rounded px-2 py-2 text-center text-base font-mono font-bold focus:border-green-500 focus:outline-none bg-white text-black"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-700 mb-1">
+                  {getHeightLabel()}
+                </label>
+                <input
+                  ref={heightInputRef}
+                  type="number"
+                  step="0.01"
+                  value={heightValue}
+                  onChange={(e) => setHeightValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full border-2 border-green-300 rounded px-2 py-2 text-center text-base font-mono font-bold focus:border-green-500 focus:outline-none bg-white text-black"
+                />
+              </div>
             </div>
-          </div>
 
-          {/* Wysokość - pełna szerokość */}
-          <div>
-            <label className="block text-[10px] font-semibold text-gray-700 mb-1">
-              {getHeightLabel()}
-            </label>
-            <input
-              ref={heightInputRef}
-              type="number"
-              step="0.01"
-              value={heightValue}
-              onChange={(e) => setHeightValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="w-full border-2 border-green-300 rounded px-2 py-2 text-center text-base font-mono font-bold focus:border-green-500 focus:outline-none bg-white text-black"
-            />
-          </div>
-        </div>
-
-        {/* Pozycja podstawy */}
-        {!isChild && (
-          <div className="mb-4">
-            <label className="block text-xs font-semibold text-gray-700 mb-2">
-              {getBaseLabel()}
-            </label>
-            <input
-              type="number"
-              step="0.01"
-              value={baseYValue}
-              onChange={(e) => setBaseYValue(e.target.value)}
-              onKeyDown={handleKeyDown}
-              className="w-full border-2 border-gray-300 rounded px-3 py-2 text-center text-base font-mono focus:border-blue-500 focus:outline-none text-black"
-            />
-          </div>
+            {!isChild && (
+              <div className="mb-4">
+                <label className="block text-xs font-semibold text-gray-700 mb-2">
+                  {getBaseLabel()}
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={baseYValue}
+                  onChange={(e) => setBaseYValue(e.target.value)}
+                  onKeyDown={handleKeyDown}
+                  className="w-full border-2 border-gray-300 rounded px-3 py-2 text-center text-base font-mono focus:border-blue-500 focus:outline-none text-black"
+                />
+              </div>
+            )}
+          </>
         )}
 
         {/* Przyciski akcji */}
@@ -314,7 +472,11 @@ export default function HeightInputPanel({
           </button>
           <button
             type="submit"
-            className="flex-1 px-4 py-3 text-sm bg-green-600 text-white hover:bg-green-700 rounded transition-colors font-bold shadow-md"
+            className={`flex-1 px-4 py-3 text-sm text-white rounded transition-colors font-bold shadow-md ${
+              isSphere
+                ? "bg-red-600 hover:bg-red-700"
+                : "bg-green-600 hover:bg-green-700"
+            }`}
           >
             ✓ Zastosuj zmiany
           </button>
