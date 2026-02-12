@@ -26,7 +26,7 @@ export const calculateNewRadius = (
   mouseDownY: number,
   currentY: number,
   initialRadius: number = 10,
-  minRadius: number = 5,
+  minRadius: number = 1,
 ): number => {
   const deltaY = (currentY - mouseDownY) * 150;
   return Math.max(minRadius, initialRadius + deltaY);
@@ -71,22 +71,18 @@ export const handleSpherePointerDown = (params: {
     getSnappedPosition,
   } = params;
 
-  // KROK 1: Panel otwarty? Zamknij
   if (editingShapeId) {
     return { action: "CLOSE_PANEL" };
   }
 
-  // KROK 2: Już umieszczamy? Commit
   if (placingSphereId) {
     return { action: "COMMIT" };
   }
 
-  // KROK 3: Kliknięto KULKĘ? → Edycja
   if (hoveredId && hoveredShape && isSphere(hoveredShape)) {
     return { action: "EDIT", shapeId: hoveredId };
   }
 
-  // KROK 4: Ściana bryły? → Kulka tam
   if (faceHit) {
     const finalPoint = isSnapEnabled
       ? getSnappedPosition(faceHit.point).point
@@ -99,7 +95,6 @@ export const handleSpherePointerDown = (params: {
     };
   }
 
-  // KROK 5: Podłoga → Kulka tam
   if (rawPoint) {
     const finalPoint = isSnapEnabled
       ? getSnappedPosition(rawPoint).point
@@ -115,9 +110,6 @@ export const handleSpherePointerDown = (params: {
   return { action: "NONE" };
 };
 
-/**
- * Logika handlePointerUp dla trybu PLACE_SPHERE
- */
 export interface SpherePointerUpResult {
   action: "COMMIT" | "OPEN_EDIT_PANEL" | "NONE";
   shapeId?: string;
@@ -134,10 +126,8 @@ export const handleSpherePointerUp = (params: {
   }
 
   if (hasMoved) {
-    // Przeciągano - zapisz
     return { action: "COMMIT" };
   }
 
-  // Kliknięto bez ruchu - edycja
   return { action: "OPEN_EDIT_PANEL", shapeId: placingSphereId };
 };

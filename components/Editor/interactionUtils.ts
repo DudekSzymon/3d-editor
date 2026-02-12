@@ -1,0 +1,241 @@
+import * as THREE from "three";
+import { DrawnShape, ShapeOrientation, getShapeBoxParams } from "./types";
+
+export interface DrawingFaceState {
+  parentId: string;
+  orientation: ShapeOrientation;
+  faceOffset: number;
+  faceDirection: number;
+  plane: THREE.Plane;
+  point: THREE.Vector3;
+}
+
+/**
+ * Znajduje ID kształtu, nad którym jest kursor
+ */
+export const getHoveredShapeId = (
+  raycaster: THREE.Raycaster,
+  camera: THREE.Camera,
+  pointer: THREE.Vector2,
+  shapes: DrawnShape[],
+): string | null => {
+  raycaster.setFromCamera(pointer, camera);
+
+  interface HitInfo {
+    id: string;
+    dist: number;
+    isChild: boolean;
+    area: number;
+  }
+
+  const hits: HitInfo[] = [];
+
+  for (const shape of shapes) {
+    const { boxArgs, center } = getShapeBoxParams(shape);
+    const isHole = !!shape.parentId;
+    const hMargin = isHole ? 1.0 : 0.5;
+    const vMargin = 0.5;
+
+    const box = new THREE.Box3().setFromCenterAndSize(
+      new THREE.Vector3(center.x, center.y, center.z),
+      new THREE.Vector3(
+        boxArgs[0] + hMargin,
+        boxArgs[1] + (isHole ? vMargin : 0.5),
+        boxArgs[2] + hMargin,
+      ),
+    );
+
+    const intersection = new THREE.Vector3();
+    if (raycaster.ray.intersectBox(box, intersection)) {
+      hits.push({
+        id: shape.id,
+        dist: intersection.distanceTo(raycaster.ray.origin),
+        isChild: isHole,
+        area: boxArgs[0] * boxArgs[2],
+      });
+    }
+  }
+
+  if (hits.length === 0) return null;
+  hits.sort((a, b) => {
+    if (Math.abs(a.dist - b.dist) < 1) {
+      if (a.isChild !== b.isChild) return a.isChild ? -1 : 1;
+      return a.area - b.area;
+    }
+    return a.dist - b.dist;
+  });
+
+  return hits[0].id;
+};
+
+export const getFaceHit = (
+  raycaster: THREE.Raycaster,
+  camera: THREE.Camera,
+  pointer: THREE.Vector2,
+  shapes: DrawnShape[],
+): DrawingFaceState | null => {
+  raycaster.setFromCamera(pointer, camera);
+
+  let closestDist = Infinity;
+  let closestHit: Omit<DrawingFaceState, "point"> | null = null;
+  let closestPoint: THREE.Vector3 | null = null;
+
+  for (const shape of shapes) {
+    // Pomijamy sfery - tylko prostokąty z wysokością
+    if (shape.type === "sphere") continue;
+    if (!shape.height || Math.abs(shape.height) < 0.01) continue;
+
+    const { boxArgs, center } = getShapeBoxParams(shape);
+    const halfW = boxArgs[0] / 2;
+    const halfH = boxArgs[1] / 2;
+    const halfD = boxArgs[2] / 2;
+
+    const box = new THREE.Box3(
+      new THREE.Vector3(center.x - halfW, center.y - halfH, center.z - halfD),
+      new THREE.Vector3(center.x + halfW, center.y + halfH, center.z + halfD),
+    );
+
+    const intersection = new THREE.Vector3();
+    if (!raycaster.ray.intersectBox(box, intersection)) continue;
+
+    const dist = intersection.distanceTo(raycaster.ray.origin);
+    if (dist >= closestDist) continue;
+
+    const faces = [
+      {
+        face: "top",
+        d: Math.abs(intersection.y - box.max.y),
+        orient: "xz",
+        offset: box.max.y,
+        dir: 1,
+      },
+      {
+        face: "bottom",
+        d: Math.abs(intersection.y - box.min.y),
+        orient: "xz",
+        offset: box.min.y,
+        dir: -1,
+      },
+      {
+        face: "front",
+        d: Math.abs(intersection.z - box.max.z),
+        orient: "xy",
+        offset: box.max.z,
+        dir: 1,
+      },
+      {
+        face: "back",
+        d: Math.abs(intersection.z - box.min.z),
+        orient: "xy",
+        offset: box.min.z,
+        dir: -1,
+      },
+      {
+        face: "right",
+        d: Math.abs(intersection.x - box.max.x),
+        orient: "yz",
+        offset: box.max.x,
+        dir: 1,
+      },
+      {
+        face: "left",
+        d: Math.abs(intersection.x - box.min.x),
+        orient: "yz",
+        offset: box.min.x,
+        dir: -1,
+      },
+    ] as const;
+
+    const sortedFaces = [...faces].sort((a, b) => a.d - b.d);
+    const bestFace = sortedFaces[0];
+
+    let plane: THREE.Plane;
+    if (bestFace.orient === "xz") {
+      plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -bestFace.offset);
+    } else if (bestFace.orient === "xy") {
+      plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -bestFace.offset);
+    } else {
+      plane = new THREE.Plane(new THREE.Vector3(1, 0, 0), -bestFace.offset);
+    }
+
+    closestDist = dist;
+    closestPoint = intersection.clone();
+    closestHit = {
+      parentId: shape.id,
+      orientation: bestFace.orient as ShapeOrientation,
+      faceOffset: bestFace.offset,
+      faceDirection: bestFace.dir,
+      plane,
+    };
+  }
+
+  return closestHit ? { ...closestHit, point: closestPoint! } : null;
+};
+
+export const getSnappedPosition = (
+  rawPoint: THREE.Vector3,
+  shapes: DrawnShape[],
+) => {
+  let closestDist = Infinity;
+  let closestPt = rawPoint.clone();
+  const snapThreshold = 15;
+
+  if (rawPoint.distanceTo(new THREE.Vector3(0, 0, 0)) < snapThreshold) {
+    return { point: new THREE.Vector3(0, 0, 0), isSnapped: true };
+  }
+
+  for (const shape of shapes) {
+    if (shape.type === "sphere") {
+      const center = shape.center || [0, 0, 0];
+      const centerPt = new THREE.Vector3(center[0], center[1], center[2]);
+      const dist = centerPt.distanceTo(rawPoint);
+      if (dist < snapThreshold && dist < closestDist) {
+        closestDist = dist;
+        closestPt = centerPt;
+      }
+      continue;
+    }
+
+    for (const ptArr of shape.points) {
+      const orient = shape.orientation || "xz";
+      let pt: THREE.Vector3;
+
+      if (orient === "xz")
+        pt = new THREE.Vector3(ptArr[0], shape.baseY || 0, ptArr[2]);
+      else if (orient === "xy")
+        pt = new THREE.Vector3(ptArr[0], ptArr[1], shape.faceOffset || 0);
+      else pt = new THREE.Vector3(shape.faceOffset || 0, ptArr[1], ptArr[2]);
+
+      const dist = pt.distanceTo(rawPoint);
+      if (dist < snapThreshold && dist < closestDist) {
+        closestDist = dist;
+        closestPt = pt.clone();
+      }
+
+      if (shape.height && Math.abs(shape.height) > 0.1) {
+        const topPt = pt.clone();
+        if (orient === "xz") topPt.y += shape.height;
+        else if (orient === "xy") topPt.z += shape.height;
+        else topPt.x += shape.height;
+
+        const topDist = topPt.distanceTo(rawPoint);
+        if (topDist < snapThreshold && topDist < closestDist) {
+          closestDist = topDist;
+          closestPt = topPt;
+        }
+      }
+    }
+  }
+  return { point: closestPt, isSnapped: closestDist < snapThreshold };
+};
+
+export const getDrawingPoint = (
+  raycaster: THREE.Raycaster,
+  camera: THREE.Camera,
+  pointer: THREE.Vector2,
+  plane: THREE.Plane,
+): THREE.Vector3 | null => {
+  raycaster.setFromCamera(pointer, camera);
+  const target = new THREE.Vector3();
+  return raycaster.ray.intersectPlane(plane, target) ? target : null;
+};
