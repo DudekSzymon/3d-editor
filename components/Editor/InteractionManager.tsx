@@ -34,6 +34,8 @@ interface DrawingFaceState {
   plane: THREE.Plane;
 }
 
+type DragMode = "HEIGHT" | "SIDE_X" | "SIDE_Z" | null;
+
 export default function InteractionManager({
   mode,
   shapes,
@@ -67,6 +69,10 @@ export default function InteractionManager({
   const [hasMoved, setHasMoved] = useState(false);
   const [heightSnapY, setHeightSnapY] = useState<number | null>(null);
 
+  // STANY: Co ciągniemy i w którą stronę (+1/-1)
+  const [dragMode, setDragMode] = useState<DragMode>(null);
+  const [dragDirection, setDragDirection] = useState<number>(0);
+
   useEffect(() => {
     setStartPoint(null);
     setCurrentPoint(null);
@@ -76,6 +82,7 @@ export default function InteractionManager({
     setHeightSnapY(null);
     setMouseDownPos(null);
     setHasMoved(false);
+    setDragMode(null);
   }, [mode, setActiveExtrudeId]);
 
   const invisiblePlaneGeo = useMemo(
@@ -103,7 +110,7 @@ export default function InteractionManager({
       id: string;
       dist: number;
       isChild: boolean;
-      area: number; // Dodajemy pole powierzchni, aby mniejsze obiekty wygrywały
+      area: number;
     }
 
     const hits: HitInfo[] = [];
@@ -306,7 +313,6 @@ export default function InteractionManager({
       if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
     }
 
-    // NOWA LOGIKA PRZESUWANIA - używa płaszczyzny prostopadłej do widoku kamery
     if (
       mode === "EXTRUDE" &&
       editingShapeId &&
@@ -316,8 +322,6 @@ export default function InteractionManager({
     ) {
       const shape = shapes.find((s) => s.id === editingShapeId);
       if (shape && lastSnapRef.current) {
-        // Tworzymy płaszczyznę prostopadłą do kierunku patrzenia kamery
-        // przechodzącą przez punkt, który użytkownik kliknął
         const cameraDirection = new THREE.Vector3();
         camera.getWorldDirection(cameraDirection);
 
@@ -344,7 +348,6 @@ export default function InteractionManager({
               points: newPoints as [number, number, number][],
             });
 
-            // Aktualizujemy punkt referencyjny na obecny
             lastSnapRef.current = intersection.clone();
           }
         }
@@ -352,31 +355,88 @@ export default function InteractionManager({
       }
     }
 
-    // TRYB EXTRUDE - WYCIĄGANIE WYSOKOŚCI (ISTNIEJĄCE)
-    if (mode === "EXTRUDE" && activeExtrudeId && extrudeStartY !== null) {
-      const deltaY = (pointer.y - extrudeStartY) * 120;
-      let newHeight = initialShapeHeight + deltaY;
+    if (mode === "EXTRUDE" && activeExtrudeId && hasMoved) {
+      if (dragMode === "HEIGHT" && extrudeStartY !== null) {
+        //Prędkość przesuwania do góry
+        const deltaY = (pointer.y - extrudeStartY) * 150;
+        let newHeight = initialShapeHeight + deltaY;
 
-      const snapThreshold = 1.0;
-      let snappedH: number | null = null;
+        const snapThreshold = 1.0;
+        let snappedH: number | null = null;
 
-      for (const shape of shapes) {
-        if (shape.id === activeExtrudeId) continue;
-        const h = shape.height || 0;
-        if (Math.abs(h) < 0.1) continue;
-        if (Math.abs(newHeight - h) < snapThreshold) {
-          newHeight = h;
-          snappedH = h;
-          break;
+        for (const shape of shapes) {
+          if (shape.id === activeExtrudeId) continue;
+          const h = shape.height || 0;
+          if (Math.abs(h) < 0.1) continue;
+          if (Math.abs(newHeight - h) < snapThreshold) {
+            newHeight = h;
+            snappedH = h;
+            break;
+          }
         }
+        if (snappedH === null && Math.abs(newHeight) < snapThreshold) {
+          newHeight = 0;
+          snappedH = 0;
+        }
+        setHeightSnapY(snappedH);
+        onShapeUpdate(activeExtrudeId, { height: newHeight });
+        return;
       }
-      if (snappedH === null && Math.abs(newHeight) < snapThreshold) {
-        newHeight = 0;
-        snappedH = 0;
+
+      if (
+        (dragMode === "SIDE_X" || dragMode === "SIDE_Z") &&
+        lastSnapRef.current
+      ) {
+        const shape = shapes.find((s) => s.id === activeExtrudeId);
+        if (!shape) return;
+
+        const dragPlane = new THREE.Plane(
+          new THREE.Vector3(0, 1, 0),
+          -lastSnapRef.current.y,
+        );
+        raycaster.setFromCamera(pointer, camera);
+        const intersection = new THREE.Vector3();
+
+        if (raycaster.ray.intersectPlane(dragPlane, intersection)) {
+          const delta = intersection.clone().sub(lastSnapRef.current);
+
+          if (delta.length() < 0.001) return;
+
+          const { center } = getShapeBoxParams(shape);
+          const newPoints = shape.points.map((p) => [...p]) as [
+            number,
+            number,
+            number,
+          ][];
+
+          newPoints.forEach((p) => {
+            if (dragMode === "SIDE_X") {
+              const isTargetSide =
+                dragDirection > 0
+                  ? p[0] > center.x - 0.1
+                  : p[0] < center.x + 0.1;
+
+              //Prędkość przesuwania na boki
+              if (isTargetSide) {
+                p[0] += delta.x * 1.5;
+              }
+            } else if (dragMode === "SIDE_Z") {
+              const isTargetSide =
+                dragDirection > 0
+                  ? p[2] > center.z - 0.1
+                  : p[2] < center.z + 0.1;
+
+              if (isTargetSide) {
+                p[2] += delta.z;
+              }
+            }
+          });
+
+          onShapeUpdate(activeExtrudeId, { points: newPoints });
+          lastSnapRef.current = intersection;
+        }
+        return;
       }
-      setHeightSnapY(snappedH);
-      onShapeUpdate(activeExtrudeId, { height: newHeight });
-      return;
     }
 
     if (mode === "EXTRUDE" && !activeExtrudeId && !editingShapeId) {
@@ -414,6 +474,7 @@ export default function InteractionManager({
         setMouseDownPos(null);
         setHasMoved(false);
         lastSnapRef.current = null;
+        setDragMode(null);
       } else {
         const targetId = getHoveredShapeId3D();
 
@@ -423,7 +484,6 @@ export default function InteractionManager({
             setMouseDownPos({ x: pointer.x, y: pointer.y });
             setHasMoved(false);
 
-            // KLUCZOWA POPRAWKA: Znajdź faktyczny punkt kliknięcia na bryle
             raycaster.setFromCamera(pointer, camera);
             const { boxArgs, center } = getShapeBoxParams(targetShape);
             const box = new THREE.Box3().setFromCenterAndSize(
@@ -433,8 +493,58 @@ export default function InteractionManager({
 
             const intersection = new THREE.Vector3();
             if (raycaster.ray.intersectBox(box, intersection)) {
-              // Zapisujemy dokładny punkt kliknięcia jako referencję
               lastSnapRef.current = intersection.clone();
+
+              const epsilon = 0.15;
+              const relativeP = intersection
+                .clone()
+                .sub(new THREE.Vector3(center.x, center.y, center.z));
+              const halfW = boxArgs[0] / 2;
+              const halfH = boxArgs[1] / 2;
+              const halfD = boxArgs[2] / 2;
+
+              const isHitY = Math.abs(Math.abs(relativeP.y) - halfH) < epsilon;
+              const isHitX = Math.abs(Math.abs(relativeP.x) - halfW) < epsilon;
+              const isHitZ = Math.abs(Math.abs(relativeP.z) - halfD) < epsilon;
+
+              let detectedMode: DragMode = null;
+              let detectedDir = 0;
+
+              if (Math.abs(targetShape.height) < 0.05) {
+                detectedMode = "HEIGHT";
+              } else {
+                const orient = targetShape.orientation || "xz";
+
+                if (orient === "xz") {
+                  if (isHitY) {
+                    detectedMode = "HEIGHT";
+                  } else if (isHitX) {
+                    detectedMode = "SIDE_X";
+                    detectedDir = Math.sign(relativeP.x);
+                  } else if (isHitZ) {
+                    detectedMode = "SIDE_Z";
+                    detectedDir = Math.sign(relativeP.z);
+                  }
+                } else if (orient === "xy") {
+                  if (isHitZ) {
+                    detectedMode = "HEIGHT";
+                  } else if (isHitX) {
+                    detectedMode = "SIDE_X";
+                    detectedDir = Math.sign(relativeP.x);
+                  }
+                } else if (orient === "yz") {
+                  if (isHitX) {
+                    detectedMode = "HEIGHT";
+                  } else if (isHitZ) {
+                    detectedMode = "SIDE_Z";
+                    detectedDir = Math.sign(relativeP.z);
+                  }
+                }
+              }
+              if (!detectedMode) detectedMode = "HEIGHT";
+
+              setDragMode(detectedMode);
+              setDragDirection(detectedDir);
             }
 
             if (!editingShapeId) {
@@ -584,6 +694,7 @@ export default function InteractionManager({
     setMouseDownPos(null);
     setHasMoved(false);
     lastSnapRef.current = null;
+    setDragMode(null);
   };
 
   const previewPoints = useMemo(() => {
