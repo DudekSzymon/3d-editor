@@ -339,7 +339,7 @@ export default function InteractionManager({
       if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
     }
 
-    // PLACE_SPHERE: podczas przeciągania zmieniamy promień (logika w sphereHandlers.ts)
+    // PLACE_SPHERE: podczas tworzenia (przeciągania nowej sfery) zmieniamy promień
     if (
       mode === "PLACE_SPHERE" &&
       placingSphereId &&
@@ -353,8 +353,10 @@ export default function InteractionManager({
       return;
     }
 
+    // PRZESUWANIE CAŁYCH BRYŁ (Wspólne dla EXTRUDE i PLACE_SPHERE)
+    // Jeśli jesteśmy w trybie EXTRUDE, lub PLACE_SPHERE (ale nie tworzymy nowej, tylko edytujemy istniejącą)
     if (
-      mode === "EXTRUDE" &&
+      (mode === "EXTRUDE" || (mode === "PLACE_SPHERE" && !placingSphereId)) &&
       editingShapeId &&
       mouseDownPos &&
       hasMoved &&
@@ -405,6 +407,7 @@ export default function InteractionManager({
       }
     }
 
+    // Pozostała logika EXTRUDE (ciągnięcie ścian) - tylko dla trybu EXTRUDE
     if (mode === "EXTRUDE" && activeExtrudeId && hasMoved) {
       if (dragMode === "HEIGHT" && extrudeStartY !== null) {
         const shape = shapes.find((s) => s.id === activeExtrudeId);
@@ -505,8 +508,8 @@ export default function InteractionManager({
 
     if (mode === "VIEW") return;
 
-    // PLACE_SPHERE: pokazujemy podgląd pozycji
-    if (mode === "PLACE_SPHERE" && !placingSphereId) {
+    // PLACE_SPHERE: pokazujemy podgląd pozycji dla nowej sfery
+    if (mode === "PLACE_SPHERE" && !placingSphereId && !editingShapeId) {
       const rawPoint = getDrawingPoint();
       if (!rawPoint) return;
 
@@ -540,8 +543,39 @@ export default function InteractionManager({
     if (mode === "VIEW" || e.button !== 0) return;
     e.stopPropagation();
 
-    // PLACE_SPHERE: umieszczanie nowej sfery (logika w sphereHandlers.ts)
+    // PLACE_SPHERE: logika
     if (mode === "PLACE_SPHERE") {
+      // 1. Sprawdź, czy kliknięto istniejącą sferę -> Przygotuj do przesuwania
+      const hoveredId = getHoveredShapeId3D();
+      const hoveredShape = shapes.find((s) => s.id === hoveredId);
+
+      // Jeśli klikamy w istniejącą sferę (i nie jesteśmy w trakcie tworzenia nowej)
+      if (
+        hoveredId &&
+        hoveredShape &&
+        hoveredShape.type === "sphere" &&
+        !placingSphereId
+      ) {
+        setEditingShapeId(hoveredId); // Ustawiamy ID edytowanej, co otworzy panel jeśli puścimy myszkę bez ruchu
+        setMouseDownPos({ x: pointer.x, y: pointer.y });
+        setHasMoved(false);
+
+        // Obliczamy punkt przecięcia dla logiki przesuwania (lastSnapRef)
+        raycaster.setFromCamera(pointer, camera);
+        const { boxArgs, center } = getShapeBoxParams(hoveredShape);
+        const box = new THREE.Box3().setFromCenterAndSize(
+          new THREE.Vector3(center.x, center.y, center.z),
+          new THREE.Vector3(boxArgs[0], boxArgs[1], boxArgs[2]),
+        );
+        const intersection = new THREE.Vector3();
+        if (raycaster.ray.intersectBox(box, intersection)) {
+          lastSnapRef.current = intersection.clone();
+        }
+
+        return; // Kończymy tutaj, żeby nie tworzyć nowej sfery pod spodem
+      }
+
+      // 2. Jeśli nie trafiono w istniejącą, użyj standardowej logiki tworzenia
       const result = handleSpherePointerDown({
         editingShapeId,
         placingSphereId,
@@ -805,6 +839,14 @@ export default function InteractionManager({
 
   const handlePointerUp = (e: any) => {
     if (mode === "PLACE_SPHERE") {
+      // Jeśli przesuwaliśmy istniejącą sferę
+      if (editingShapeId && hasMoved && !placingSphereId) {
+        onShapesCommit();
+        setMouseDownPos(null);
+        setHasMoved(false);
+        return;
+      }
+
       const result = handleSpherePointerUp({
         placingSphereId,
         hasMoved,
