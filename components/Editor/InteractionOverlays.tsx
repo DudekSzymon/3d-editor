@@ -115,6 +115,7 @@ export default function InteractionOverlays({
         </group>
       )}
 
+      {/* Podgląd rysowania PROSTOKĄTA (zostawiamy czerwony/czarny) */}
       {previewPoints && (
         <Line
           points={previewPoints}
@@ -123,13 +124,14 @@ export default function InteractionOverlays({
         />
       )}
 
+      {/* --- Linia KALIBRACJI (Teraz ŻÓŁTA i GRUBA) --- */}
       {startPoint && currentPoint && mode === "CALIBRATE" && (
         <Line
           points={[startPoint, currentPoint]}
-          color="magenta"
-          lineWidth={2}
+          color="yellow" // Żółty kolor
+          lineWidth={8} // Gruba linia (było 2)
           dashed={true}
-          dashScale={5}
+          dashScale={10} // Większa skala przerywania dla lepszej widoczności
         />
       )}
 

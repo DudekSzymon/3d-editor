@@ -165,7 +165,12 @@ export default function Canvas3D() {
     width: number;
     height: number;
   } | null>(null);
+
   const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
+
+  // --- NOWE: Stan dla trybu kalibracji (linijka) ---
+  const [isCalibratingRuler, setIsCalibratingRuler] = useState(false);
+  const [measuredPixels, setMeasuredPixels] = useState<number>(0);
 
   const handleReset = () => resetFunctionRef.current?.();
 
@@ -287,7 +292,33 @@ export default function Canvas3D() {
     img.src = url;
   };
 
+  // --- NOWE: Funkcja wywoływana przez InteractionManager gdy zmierzymy odległość ---
+  const handleMeasureFromInteraction = (distPx: number) => {
+    if (distPx < 0.1) return;
+    setMeasuredPixels(distPx);
+    setIsCalibratingRuler(true);
+    setIsScaleModalOpen(true);
+  };
+
   const handleScaleConfirm = (pixels: number, realWorldUnits: number) => {
+    // 1. Tryb KALIBRACJI LINIJKĄ
+    if (isCalibratingRuler && backgroundImage) {
+      const correctionFactor = realWorldUnits / pixels;
+
+      setBackgroundImage({
+        ...backgroundImage,
+        scale: backgroundImage.scale * correctionFactor,
+        width: backgroundImage.width * correctionFactor,
+        height: backgroundImage.height * correctionFactor,
+      });
+
+      setIsScaleModalOpen(false);
+      setIsCalibratingRuler(false);
+      setMode("VIEW");
+      return;
+    }
+
+    // 2. Tryb IMPORTU ZDJĘCIA
     if (!tempImage) return;
     const scaleFactor = realWorldUnits / pixels;
     setBackgroundImage({
@@ -305,6 +336,7 @@ export default function Canvas3D() {
 
   const handleModalClose = () => {
     setIsScaleModalOpen(false);
+    setIsCalibratingRuler(false);
     if (tempImage) {
       URL.revokeObjectURL(tempImage.url);
       setTempImage(null);
@@ -415,6 +447,8 @@ export default function Canvas3D() {
         return "WYCIĄGANIE: Ciągnij figurę myszą lub kliknij aby wpisać wartość";
       case "PLACE_SPHERE":
         return "KULKA: Kliknij aby umieścić kulkę, przeciągnij aby zmienić rozmiar";
+      case "CALIBRATE":
+        return "KALIBRACJA: Kliknij dwa punkty na obrazku, aby zmierzyć odległość referencyjną";
       default:
         return "";
     }
@@ -441,8 +475,8 @@ export default function Canvas3D() {
           shapes={shapes}
           onShapeAdd={handleShapeAdd}
           onShapeUpdate={handleShapeUpdate}
-          onCalibrateConfirm={() => {}}
-          hoveredShapeId={hoveredShapeId}
+          onCalibrateConfirm={handleMeasureFromInteraction}
+          hoveredShapeId={hoveredShapeId} // <-- DODANO BRAKUJĄCY PROP
           setHoveredShapeId={setHoveredShapeId}
           isSnapEnabled={isSnapEnabled}
           editingShapeId={editingShapeId}
@@ -456,9 +490,14 @@ export default function Canvas3D() {
       {backgroundImage && <ImageInfoPanel data={backgroundImage} />}
 
       <CanvasScaleModal
+        key={isCalibratingRuler ? "ruler" : "import"}
         isOpen={isScaleModalOpen}
         onClose={handleModalClose}
         onConfirm={handleScaleConfirm}
+        // @ts-ignore
+        initialPixels={isCalibratingRuler ? measuredPixels : 1}
+        // @ts-ignore
+        title={isCalibratingRuler ? "Kalibracja wymiaru" : "Skala płótna"}
       />
 
       {editingShape && (

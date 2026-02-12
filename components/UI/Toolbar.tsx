@@ -46,6 +46,8 @@ export default function Toolbar({
     { id: "DRAW_RECT", icon: FaVectorSquare, label: "Rysuj" },
     { id: "EXTRUDE", icon: FaCube, label: "Wyciągnij" },
     { id: "PLACE_SPHERE", icon: FaCircle, label: "Obiekt" },
+    // --- NOWE: Dodajemy narzędzie Kalibracji ---
+    { id: "CALIBRATE", icon: FaRulerCombined, label: "Kalibruj" },
   ] as const;
 
   return (
