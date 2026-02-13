@@ -20,7 +20,8 @@ import InteractionOverlays from "./InteractionOverlays";
 
 interface InteractionManagerProps {
   mode: EditorMode;
-  shapes: DrawnShape[];
+  shapes: DrawnShape[]; // Wszystkie kształty (do snap, parent relations)
+  visibleShapes: DrawnShape[]; // Tylko widoczne (do hover, interakcji)
   onShapeAdd: (shape: DrawnShape) => void;
   onShapeUpdate: (id: string, updates: Partial<DrawnShape>) => void;
   onCalibrate: (distancePx: number) => void;
@@ -38,6 +39,7 @@ type DragMode = "HEIGHT" | "SIDE_X" | "SIDE_Z" | null;
 export default function InteractionManager({
   mode,
   shapes,
+  visibleShapes,
   onShapeAdd,
   onShapeUpdate,
   onCalibrate,
@@ -52,7 +54,6 @@ export default function InteractionManager({
   const { camera, raycaster, pointer } = useThree();
 
   const lastSnapRef = useRef<THREE.Vector3 | null>(null);
-  // NOWE REF-Y: Zapamiętują stan w momencie kliknięcia
   const dragStartIntersectRef = useRef<THREE.Vector3 | null>(null);
   const dragStartShapeValueRef = useRef<any>(null);
 
@@ -108,7 +109,6 @@ export default function InteractionManager({
       if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
     }
 
-    // PLACE_SPHERE: zmiana promienia przy tworzeniu
     if (
       mode === "PLACE_SPHERE" &&
       placingSphereId &&
@@ -121,8 +121,6 @@ export default function InteractionManager({
       return;
     }
 
-    // PRZESUWANIE CAŁYCH BRYŁ (Wspólne dla EXTRUDE i PLACE_SPHERE)
-    // POPRAWIONE: Używamy dragStartIntersectRef zamiast lastSnapRef dla płynności
     if (
       (mode === "EXTRUDE" || (mode === "PLACE_SPHERE" && !placingSphereId)) &&
       editingShapeId &&
@@ -143,7 +141,6 @@ export default function InteractionManager({
         const intersection = new THREE.Vector3();
 
         if (raycaster.ray.intersectPlane(plane, intersection)) {
-          // Obliczamy całkowity wektor przesunięcia od momentu kliknięcia
           const totalDelta = intersection
             .clone()
             .sub(dragStartIntersectRef.current);
@@ -172,7 +169,6 @@ export default function InteractionManager({
       }
     }
 
-    // Pozostała logika EXTRUDE (ciągnięcie ścian / zmiana promienia sfery w Extrude)
     if (mode === "EXTRUDE" && activeExtrudeId && hasMoved) {
       if (dragMode === "HEIGHT" && extrudeStartY !== null) {
         const shape = shapes.find((s) => s.id === activeExtrudeId);
@@ -208,7 +204,6 @@ export default function InteractionManager({
         return;
       }
 
-      // POPRAWIONE: Logika SIDE_X i SIDE_Z również na "absolute dragging"
       if (
         (dragMode === "SIDE_X" || dragMode === "SIDE_Z") &&
         dragStartIntersectRef.current
@@ -263,8 +258,11 @@ export default function InteractionManager({
       }
     }
 
+    // HOVER — tylko na widocznych kształtach
     if (mode === "EXTRUDE" && !activeExtrudeId && !editingShapeId) {
-      setHoveredShapeId(getHoveredShapeId(raycaster, camera, pointer, shapes));
+      setHoveredShapeId(
+        getHoveredShapeId(raycaster, camera, pointer, visibleShapes),
+      );
       return;
     }
 
@@ -313,7 +311,13 @@ export default function InteractionManager({
     e.stopPropagation();
 
     if (mode === "PLACE_SPHERE") {
-      const hoveredId = getHoveredShapeId(raycaster, camera, pointer, shapes);
+      // Hover/interakcja — tylko na widocznych
+      const hoveredId = getHoveredShapeId(
+        raycaster,
+        camera,
+        pointer,
+        visibleShapes,
+      );
       const hoveredShape = shapes.find((s) => s.id === hoveredId);
 
       if (
@@ -335,7 +339,6 @@ export default function InteractionManager({
         const intersection = new THREE.Vector3();
         if (raycaster.ray.intersectBox(box, intersection)) {
           lastSnapRef.current = intersection.clone();
-          // POPRAWIONE: Inicjalizacja refów dla przesuwania sfery
           dragStartIntersectRef.current = intersection.clone();
           dragStartShapeValueRef.current = [...hoveredShape.center!];
         }
@@ -345,11 +348,13 @@ export default function InteractionManager({
       const result = handleSpherePointerDown({
         editingShapeId,
         placingSphereId,
-        hoveredId: getHoveredShapeId(raycaster, camera, pointer, shapes),
+        hoveredId: getHoveredShapeId(raycaster, camera, pointer, visibleShapes),
         hoveredShape: shapes.find(
-          (s) => s.id === getHoveredShapeId(raycaster, camera, pointer, shapes),
+          (s) =>
+            s.id ===
+            getHoveredShapeId(raycaster, camera, pointer, visibleShapes),
         ),
-        faceHit: getFaceHit(raycaster, camera, pointer, shapes),
+        faceHit: getFaceHit(raycaster, camera, pointer, visibleShapes),
         rawPoint: getDrawingPoint(raycaster, camera, pointer, virtualPlane),
         isSnapEnabled,
         getSnappedPosition: (p) => getSnappedPosition(p, shapes),
@@ -395,7 +400,13 @@ export default function InteractionManager({
         lastSnapRef.current = null;
         setDragMode(null);
       } else {
-        const targetId = getHoveredShapeId(raycaster, camera, pointer, shapes);
+        // Hover — tylko widoczne
+        const targetId = getHoveredShapeId(
+          raycaster,
+          camera,
+          pointer,
+          visibleShapes,
+        );
         if (targetId) {
           const targetShape = shapes.find((s) => s.id === targetId);
           if (targetShape) {
@@ -412,7 +423,6 @@ export default function InteractionManager({
             const intersection = new THREE.Vector3();
             if (raycaster.ray.intersectBox(box, intersection)) {
               lastSnapRef.current = intersection.clone();
-              // POPRAWIONE: Inicjalizacja refów dla przesuwania/edycji boków
               dragStartIntersectRef.current = intersection.clone();
               if (targetShape.type === "sphere") {
                 dragStartShapeValueRef.current = [...targetShape.center!];
@@ -492,7 +502,8 @@ export default function InteractionManager({
     if (mode === "DRAW_RECT" || mode === "CALIBRATE") {
       if (!startPoint) {
         if (mode === "DRAW_RECT") {
-          const faceHit = getFaceHit(raycaster, camera, pointer, shapes);
+          // Face hit — tylko na widocznych
+          const faceHit = getFaceHit(raycaster, camera, pointer, visibleShapes);
           if (faceHit) {
             setDrawingFace(faceHit);
             const finalPoint = isSnapEnabled
@@ -518,6 +529,9 @@ export default function InteractionManager({
             const commonProps = {
               id: Math.random().toString(36),
               type: "rect" as const,
+              name: "", // zostanie nadane w handleShapeAdd
+              layerId: "", // zostanie nadane w handleShapeAdd
+              visible: true,
               height: 0,
             };
 

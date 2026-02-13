@@ -1,9 +1,6 @@
 import * as THREE from "three";
-import { DrawnShape } from "./types";
+import { DrawnShape, DEFAULT_LAYER_ID } from "./types";
 
-/**
- * Tworzy nową kulkę w podanej pozycji
- */
 export const createSphere = (
   point: THREE.Vector3,
   radius: number = 10,
@@ -11,6 +8,9 @@ export const createSphere = (
   return {
     id: Math.random().toString(36),
     type: "sphere",
+    name: "",
+    layerId: DEFAULT_LAYER_ID,
+    visible: true,
     points: [],
     height: 0,
     baseY: 0,
@@ -19,9 +19,6 @@ export const createSphere = (
   };
 };
 
-/**
- * Oblicza nowy promień na podstawie ruchu myszy
- */
 export const calculateNewRadius = (
   mouseDownY: number,
   currentY: number,
@@ -41,7 +38,6 @@ export const isSphere = (shape: DrawnShape | undefined): boolean => {
 
 /**
  * Logika handlePointerDown dla trybu PLACE_SPHERE
- * Zwraca akcję do wykonania
  */
 export interface SpherePointerDownResult {
   action: "EDIT" | "CREATE" | "COMMIT" | "CLOSE_PANEL" | "NONE";

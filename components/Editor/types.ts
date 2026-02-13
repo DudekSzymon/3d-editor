@@ -13,9 +13,32 @@ export interface BackgroundImageData extends ImageInfoPanelData {
   url: string;
 }
 
+export interface Layer {
+  id: string;
+  name: string;
+  visible: boolean;
+  color: string; // kolor identyfikacyjny warstwy
+}
+
+export const DEFAULT_LAYER_ID = "default";
+
+export function createDefaultLayers(): Layer[] {
+  return [
+    {
+      id: DEFAULT_LAYER_ID,
+      name: "Podstawowa",
+      visible: true,
+      color: "#3b82f6",
+    },
+  ];
+}
+
 export interface DrawnShape {
   id: string;
   type: "rect" | "sphere";
+  name: string; // nazwa obiektu (np. "Ściana 1", "Kamera 2")
+  layerId: string; // ID warstwy, domyślnie DEFAULT_LAYER_ID
+  visible: boolean; // widoczność pojedynczego obiektu
   points: [number, number, number][]; // 4 narożniki prostokąta bazowego (tylko dla rect)
   height: number; // Wysokość/głębokość wyciągnięcia (dla rect)
   baseY: number; // Dla 'xz': pozycja Y podstawy (dla rect)

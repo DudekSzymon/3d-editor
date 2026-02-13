@@ -15,6 +15,7 @@ import ImageInfoPanel from "./UI/ImageInfoPanel";
 import CanvasScaleModal from "./UI/CanvasScaleModal";
 import CanvasSettingsModal from "./UI/CanvasSettingsModal";
 import HeightInputPanel from "./UI/HeightInputPanel";
+import LayersPanel from "./UI/LayersPanel";
 
 import Axes from "./Editor/Axes";
 import BackgroundPlane from "./Editor/BackgroundPlane";
@@ -24,14 +25,33 @@ import {
   EditorMode,
   DrawnShape,
   BackgroundImageData,
+  Layer,
+  DEFAULT_LAYER_ID,
+  createDefaultLayers,
   getShapeBoxParams,
 } from "./Editor/types";
+
+/* ======= Liczniki autonazw ======= */
+let structureCounter = 0;
+let entityCounter = 0;
+
+function generateShapeName(type: "rect" | "sphere"): string {
+  if (type === "sphere") {
+    entityCounter++;
+    return `Kamera ${entityCounter}`;
+  }
+  structureCounter++;
+  return `Ściana ${structureCounter}`;
+}
+
+/* ======= SceneContent (bez zmian logicznych, dodane filtrowanie) ======= */
 
 interface SceneContentProps {
   onResetReady: (fn: () => void) => void;
   backgroundImage: BackgroundImageData | null;
   mode: EditorMode;
   shapes: DrawnShape[];
+  visibleShapes: DrawnShape[];
   onShapeAdd: (s: DrawnShape) => void;
   onShapeUpdate: (id: string, u: Partial<DrawnShape>) => void;
   onCalibrateConfirm: (dist: number) => void;
@@ -50,6 +70,7 @@ function SceneContent({
   backgroundImage,
   mode,
   shapes,
+  visibleShapes,
   onShapeAdd,
   onShapeUpdate,
   onCalibrateConfirm,
@@ -101,18 +122,22 @@ function SceneContent({
 
       <Axes />
       {backgroundImage && (
-        <BackgroundPlane data={backgroundImage} shapes={shapes} />
+        <BackgroundPlane data={backgroundImage} shapes={visibleShapes} />
       )}
 
+      {/* Renderujemy TYLKO widoczne kształty */}
       <ShapeRenderer
-        shapes={shapes}
+        shapes={visibleShapes}
         hoveredShapeId={hoveredShapeId}
         activeExtrudeId={activeExtrudeId}
       />
 
+      {/* InteractionManager dostaje WSZYSTKIE shapes do snap/parent,
+          ale visibleShapes do hover/interakcji */}
       <InteractionManager
         mode={mode}
         shapes={shapes}
+        visibleShapes={visibleShapes}
         onShapeAdd={onShapeAdd}
         onShapeUpdate={onShapeUpdate}
         onCalibrate={onCalibrateConfirm}
@@ -144,6 +169,19 @@ function SceneContent({
   );
 }
 
+/* ======= Główny komponent ======= */
+
+const LAYER_COLORS = [
+  "#3b82f6",
+  "#ef4444",
+  "#10b981",
+  "#f59e0b",
+  "#8b5cf6",
+  "#ec4899",
+  "#06b6d4",
+  "#84cc16",
+];
+
 export default function Canvas3D() {
   const resetFunctionRef = useRef<(() => void) | null>(null);
 
@@ -160,7 +198,11 @@ export default function Canvas3D() {
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
   const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
 
-  // --- SKALA PŁÓTNA: ile mm odpowiada 1 jednostce w scenie ---
+  // --- WARSTWY ---
+  const [layers, setLayers] = useState<Layer[]>(createDefaultLayers());
+  const [isLayersPanelOpen, setIsLayersPanelOpen] = useState(false);
+
+  // --- SKALA PŁÓTNA ---
   const [canvasScale, setCanvasScale] = useState<number>(1);
   const [isCanvasSettingsOpen, setIsCanvasSettingsOpen] = useState(false);
 
@@ -172,10 +214,16 @@ export default function Canvas3D() {
   } | null>(null);
 
   const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
-
-  // --- Stan dla trybu kalibracji (linijka) ---
   const [isCalibratingRuler, setIsCalibratingRuler] = useState(false);
   const [measuredPixels, setMeasuredPixels] = useState<number>(0);
+
+  /* === Filtrowanie widocznych kształtów === */
+  const hiddenLayerIds = new Set(
+    layers.filter((l) => !l.visible).map((l) => l.id),
+  );
+  const visibleShapes = shapes.filter(
+    (s) => s.visible && !hiddenLayerIds.has(s.layerId),
+  );
 
   const handleReset = () => resetFunctionRef.current?.();
 
@@ -206,8 +254,15 @@ export default function Canvas3D() {
     }
   }, [history, historyIndex]);
 
+  /* === Dodawanie kształtów — autonazwa + domyślna warstwa === */
   const handleShapeAdd = (shape: DrawnShape) => {
-    const newShapes = [...shapes, shape];
+    const namedShape: DrawnShape = {
+      ...shape,
+      name: shape.name || generateShapeName(shape.type),
+      layerId: shape.layerId || DEFAULT_LAYER_ID,
+      visible: true,
+    };
+    const newShapes = [...shapes, namedShape];
     saveToHistory(newShapes);
   };
 
@@ -250,6 +305,61 @@ export default function Canvas3D() {
     saveToHistory(shapes);
   };
 
+  /* === Operacje na warstwach === */
+  const handleToggleLayerVisibility = (layerId: string) => {
+    setLayers((prev) =>
+      prev.map((l) => (l.id === layerId ? { ...l, visible: !l.visible } : l)),
+    );
+  };
+
+  const handleAddLayer = (name: string) => {
+    const colorIndex = layers.length % LAYER_COLORS.length;
+    const newLayer: Layer = {
+      id: Math.random().toString(36).slice(2, 10),
+      name,
+      visible: true,
+      color: LAYER_COLORS[colorIndex],
+    };
+    setLayers((prev) => [...prev, newLayer]);
+  };
+
+  const handleRemoveLayer = (layerId: string) => {
+    if (layerId === DEFAULT_LAYER_ID) return;
+    // Przenieś obiekty z usuwanej warstwy do domyślnej
+    setShapes((prev) =>
+      prev.map((s) =>
+        s.layerId === layerId ? { ...s, layerId: DEFAULT_LAYER_ID } : s,
+      ),
+    );
+    setLayers((prev) => prev.filter((l) => l.id !== layerId));
+  };
+
+  const handleRenameLayer = (layerId: string, newName: string) => {
+    setLayers((prev) =>
+      prev.map((l) => (l.id === layerId ? { ...l, name: newName } : l)),
+    );
+  };
+
+  const handleMoveShapeToLayer = (shapeId: string, targetLayerId: string) => {
+    setShapes((prev) =>
+      prev.map((s) =>
+        s.id === shapeId ? { ...s, layerId: targetLayerId } : s,
+      ),
+    );
+  };
+
+  const handleToggleShapeVisibility = (shapeId: string) => {
+    setShapes((prev) =>
+      prev.map((s) => (s.id === shapeId ? { ...s, visible: !s.visible } : s)),
+    );
+  };
+
+  const handleSelectShapeFromPanel = (shapeId: string) => {
+    setEditingShapeId(shapeId);
+    setMode("EXTRUDE");
+  };
+
+  /* === Klawiatura === */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -280,6 +390,7 @@ export default function Canvas3D() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [undo, redo]);
 
+  /* === Import obrazu === */
   const handleImageSelect = (file: File) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
@@ -295,7 +406,6 @@ export default function Canvas3D() {
     img.src = url;
   };
 
-  // Funkcja wywoływana przez InteractionManager gdy zmierzymy odległość
   const handleMeasureFromInteraction = (distSceneUnits: number) => {
     if (distSceneUnits < 0.1) return;
     setMeasuredPixels(distSceneUnits);
@@ -304,12 +414,7 @@ export default function Canvas3D() {
   };
 
   const handleScaleConfirm = (pixels: number, realWorldMM: number) => {
-    // 1. Tryb KALIBRACJI LINIJKĄ
     if (isCalibratingRuler && backgroundImage) {
-      // pixels = zmierzona odległość w scene units
-      // realWorldMM = ile mm to powinno być w rzeczywistości
-      // Aktualnie ta odległość w mm = pixels * canvasScale
-      // Korekta: realWorldMM / (pixels * canvasScale)
       const currentMM = pixels * canvasScale;
       const correctionFactor = realWorldMM / currentMM;
 
@@ -326,13 +431,8 @@ export default function Canvas3D() {
       return;
     }
 
-    // 2. Tryb IMPORTU ZDJĘCIA
     if (!tempImage) return;
 
-    // pixels = ile pikseli w obrazku (domyślnie 1 przy imporcie)
-    // realWorldMM = ile mm odpowiada tym pikselom
-    // mmPerPixel = realWorldMM / pixels
-    // sceneUnitsPerPixel = mmPerPixel / canvasScale
     const mmPerPixel = realWorldMM / pixels;
     const sceneUnitsPerPixel = mmPerPixel / canvasScale;
 
@@ -342,7 +442,7 @@ export default function Canvas3D() {
       height: tempImage.height * sceneUnitsPerPixel,
       originalWidth: tempImage.width,
       originalHeight: tempImage.height,
-      scale: sceneUnitsPerPixel, // scene units per pixel
+      scale: sceneUnitsPerPixel,
     });
     setIsScaleModalOpen(false);
     setTempImage(null);
@@ -358,11 +458,8 @@ export default function Canvas3D() {
     }
   };
 
-  // Zmiana skali płótna - przelicza też istniejący obrazek
   const handleCanvasScaleChange = (newScale: number) => {
     if (backgroundImage && canvasScale !== newScale) {
-      // Przelicz wymiary obrazka: stare scene units * staraSkala = mm
-      // nowe scene units = mm / nowaSkala
       const ratio = canvasScale / newScale;
       setBackgroundImage({
         ...backgroundImage,
@@ -372,7 +469,6 @@ export default function Canvas3D() {
       });
     }
 
-    // Przelicz też wszystkie kształty
     if (canvasScale !== newScale) {
       const ratio = canvasScale / newScale;
       setShapes((prev) =>
@@ -427,12 +523,8 @@ export default function Canvas3D() {
     let updatedShape = { ...shape };
 
     if (shape.type === "sphere") {
-      if (updates.radius !== undefined) {
-        updatedShape.radius = updates.radius;
-      }
-      if (updates.center !== undefined) {
-        updatedShape.center = updates.center;
-      }
+      if (updates.radius !== undefined) updatedShape.radius = updates.radius;
+      if (updates.center !== undefined) updatedShape.center = updates.center;
     } else {
       updatedShape.height = updates.height;
       updatedShape.baseY = updates.baseY;
@@ -531,6 +623,8 @@ export default function Canvas3D() {
         onToggleSnap={() => setIsSnapEnabled(!isSnapEnabled)}
         canvasScale={canvasScale}
         onOpenCanvasSettings={() => setIsCanvasSettingsOpen(true)}
+        isLayersPanelOpen={isLayersPanelOpen}
+        onToggleLayersPanel={() => setIsLayersPanelOpen(!isLayersPanelOpen)}
       />
 
       <Canvas gl={{ antialias: true }}>
@@ -541,6 +635,7 @@ export default function Canvas3D() {
           backgroundImage={backgroundImage}
           mode={mode}
           shapes={shapes}
+          visibleShapes={visibleShapes}
           onShapeAdd={handleShapeAdd}
           onShapeUpdate={handleShapeUpdate}
           onCalibrateConfirm={handleMeasureFromInteraction}
@@ -591,6 +686,23 @@ export default function Canvas3D() {
           canvasScale={canvasScale}
         />
       )}
+
+      {/* PANEL WARSTW (prawy sidebar) */}
+      <LayersPanel
+        isOpen={isLayersPanelOpen}
+        onClose={() => setIsLayersPanelOpen(false)}
+        layers={layers}
+        shapes={shapes}
+        onToggleLayerVisibility={handleToggleLayerVisibility}
+        onToggleShapeVisibility={handleToggleShapeVisibility}
+        onAddLayer={handleAddLayer}
+        onRemoveLayer={handleRemoveLayer}
+        onRenameLayer={handleRenameLayer}
+        onMoveShapeToLayer={handleMoveShapeToLayer}
+        onSelectShape={handleSelectShapeFromPanel}
+        canvasScale={canvasScale}
+        editingShapeId={editingShapeId}
+      />
 
       {mode !== "VIEW" && (
         <div className="absolute top-4 left-24 bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded shadow-lg z-20 text-sm font-bold animate-pulse">

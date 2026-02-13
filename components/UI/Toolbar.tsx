@@ -8,6 +8,7 @@ import {
   FaCube,
   FaCircle,
   FaCog,
+  FaLayerGroup,
 } from "react-icons/fa";
 import { EditorMode } from "../Editor/types";
 
@@ -20,6 +21,8 @@ interface ToolbarProps {
   onToggleSnap: () => void;
   canvasScale: number;
   onOpenCanvasSettings: () => void;
+  isLayersPanelOpen: boolean;
+  onToggleLayersPanel: () => void;
 }
 
 export default function Toolbar({
@@ -31,6 +34,8 @@ export default function Toolbar({
   onToggleSnap,
   canvasScale,
   onOpenCanvasSettings,
+  isLayersPanelOpen,
+  onToggleLayersPanel,
 }: ToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -109,6 +114,23 @@ export default function Toolbar({
       </button>
 
       <div className="w-full h-px bg-gray-200 my-1"></div>
+
+      {/* PRZYCISK WARSTW */}
+      <button
+        onClick={onToggleLayersPanel}
+        title="Panel warstw"
+        className={`
+          flex flex-col items-center justify-center w-12 h-12 rounded transition-all
+          ${
+            isLayersPanelOpen
+              ? "bg-purple-600 text-white shadow-sm"
+              : "text-gray-600 hover:bg-gray-100"
+          }
+        `}
+      >
+        <FaLayerGroup size={18} className="mb-1" />
+        <span className="text-[9px] font-medium">Warstwy</span>
+      </button>
 
       {/* USTAWIENIA PŁÓTNA */}
       <button
