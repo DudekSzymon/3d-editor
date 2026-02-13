@@ -13,6 +13,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import Toolbar from "./UI/Toolbar";
 import ImageInfoPanel from "./UI/ImageInfoPanel";
 import CanvasScaleModal from "./UI/CanvasScaleModal";
+import CanvasSettingsModal from "./UI/CanvasSettingsModal";
 import HeightInputPanel from "./UI/HeightInputPanel";
 
 import Axes from "./Editor/Axes";
@@ -159,6 +160,10 @@ export default function Canvas3D() {
   const [isSnapEnabled, setIsSnapEnabled] = useState(true);
   const [editingShapeId, setEditingShapeId] = useState<string | null>(null);
 
+  // --- SKALA PŁÓTNA: ile mm odpowiada 1 jednostce w scenie ---
+  const [canvasScale, setCanvasScale] = useState<number>(1);
+  const [isCanvasSettingsOpen, setIsCanvasSettingsOpen] = useState(false);
+
   const [tempImage, setTempImage] = useState<{
     file: File;
     url: string;
@@ -168,7 +173,7 @@ export default function Canvas3D() {
 
   const [isScaleModalOpen, setIsScaleModalOpen] = useState(false);
 
-  // --- NOWE: Stan dla trybu kalibracji (linijka) ---
+  // --- Stan dla trybu kalibracji (linijka) ---
   const [isCalibratingRuler, setIsCalibratingRuler] = useState(false);
   const [measuredPixels, setMeasuredPixels] = useState<number>(0);
 
@@ -218,7 +223,6 @@ export default function Canvas3D() {
         if (s.id !== id) return s;
 
         if (s.type === "sphere") {
-          // Przesuwanie sfery
           const center = s.center || [0, s.radius || 10, 0];
           return {
             ...s,
@@ -230,7 +234,6 @@ export default function Canvas3D() {
           };
         }
 
-        // Przesuwanie prostokąta
         return {
           ...s,
           points: s.points.map((p) => [p[0] + dx, p[1] + dy, p[2] + dz]) as [
@@ -292,18 +295,23 @@ export default function Canvas3D() {
     img.src = url;
   };
 
-  // --- NOWE: Funkcja wywoływana przez InteractionManager gdy zmierzymy odległość ---
-  const handleMeasureFromInteraction = (distPx: number) => {
-    if (distPx < 0.1) return;
-    setMeasuredPixels(distPx);
+  // Funkcja wywoływana przez InteractionManager gdy zmierzymy odległość
+  const handleMeasureFromInteraction = (distSceneUnits: number) => {
+    if (distSceneUnits < 0.1) return;
+    setMeasuredPixels(distSceneUnits);
     setIsCalibratingRuler(true);
     setIsScaleModalOpen(true);
   };
 
-  const handleScaleConfirm = (pixels: number, realWorldUnits: number) => {
+  const handleScaleConfirm = (pixels: number, realWorldMM: number) => {
     // 1. Tryb KALIBRACJI LINIJKĄ
     if (isCalibratingRuler && backgroundImage) {
-      const correctionFactor = realWorldUnits / pixels;
+      // pixels = zmierzona odległość w scene units
+      // realWorldMM = ile mm to powinno być w rzeczywistości
+      // Aktualnie ta odległość w mm = pixels * canvasScale
+      // Korekta: realWorldMM / (pixels * canvasScale)
+      const currentMM = pixels * canvasScale;
+      const correctionFactor = realWorldMM / currentMM;
 
       setBackgroundImage({
         ...backgroundImage,
@@ -320,14 +328,21 @@ export default function Canvas3D() {
 
     // 2. Tryb IMPORTU ZDJĘCIA
     if (!tempImage) return;
-    const scaleFactor = realWorldUnits / pixels;
+
+    // pixels = ile pikseli w obrazku (domyślnie 1 przy imporcie)
+    // realWorldMM = ile mm odpowiada tym pikselom
+    // mmPerPixel = realWorldMM / pixels
+    // sceneUnitsPerPixel = mmPerPixel / canvasScale
+    const mmPerPixel = realWorldMM / pixels;
+    const sceneUnitsPerPixel = mmPerPixel / canvasScale;
+
     setBackgroundImage({
       url: tempImage.url,
-      width: tempImage.width * scaleFactor,
-      height: tempImage.height * scaleFactor,
+      width: tempImage.width * sceneUnitsPerPixel,
+      height: tempImage.height * sceneUnitsPerPixel,
       originalWidth: tempImage.width,
       originalHeight: tempImage.height,
-      scale: scaleFactor,
+      scale: sceneUnitsPerPixel, // scene units per pixel
     });
     setIsScaleModalOpen(false);
     setTempImage(null);
@@ -341,6 +356,59 @@ export default function Canvas3D() {
       URL.revokeObjectURL(tempImage.url);
       setTempImage(null);
     }
+  };
+
+  // Zmiana skali płótna - przelicza też istniejący obrazek
+  const handleCanvasScaleChange = (newScale: number) => {
+    if (backgroundImage && canvasScale !== newScale) {
+      // Przelicz wymiary obrazka: stare scene units * staraSkala = mm
+      // nowe scene units = mm / nowaSkala
+      const ratio = canvasScale / newScale;
+      setBackgroundImage({
+        ...backgroundImage,
+        width: backgroundImage.width * ratio,
+        height: backgroundImage.height * ratio,
+        scale: backgroundImage.scale * ratio,
+      });
+    }
+
+    // Przelicz też wszystkie kształty
+    if (canvasScale !== newScale) {
+      const ratio = canvasScale / newScale;
+      setShapes((prev) =>
+        prev.map((s) => {
+          if (s.type === "sphere") {
+            const center = s.center || [0, s.radius || 10, 0];
+            return {
+              ...s,
+              radius: (s.radius || 10) * ratio,
+              center: [
+                center[0] * ratio,
+                center[1] * ratio,
+                center[2] * ratio,
+              ] as [number, number, number],
+            };
+          }
+          return {
+            ...s,
+            points: s.points.map(
+              (p) =>
+                [p[0] * ratio, p[1] * ratio, p[2] * ratio] as [
+                  number,
+                  number,
+                  number,
+                ],
+            ),
+            height: s.height * ratio,
+            baseY: (s.baseY || 0) * ratio,
+            faceOffset: s.faceOffset ? s.faceOffset * ratio : s.faceOffset,
+          };
+        }),
+      );
+    }
+
+    setCanvasScale(newScale);
+    setIsCanvasSettingsOpen(false);
   };
 
   const handleHeightApply = (updates: {
@@ -359,7 +427,6 @@ export default function Canvas3D() {
     let updatedShape = { ...shape };
 
     if (shape.type === "sphere") {
-      // Edycja sfery
       if (updates.radius !== undefined) {
         updatedShape.radius = updates.radius;
       }
@@ -367,7 +434,6 @@ export default function Canvas3D() {
         updatedShape.center = updates.center;
       }
     } else {
-      // Edycja prostokąta
       updatedShape.height = updates.height;
       updatedShape.baseY = updates.baseY;
 
@@ -463,6 +529,8 @@ export default function Canvas3D() {
         onImageSelect={handleImageSelect}
         isSnapEnabled={isSnapEnabled}
         onToggleSnap={() => setIsSnapEnabled(!isSnapEnabled)}
+        canvasScale={canvasScale}
+        onOpenCanvasSettings={() => setIsCanvasSettingsOpen(true)}
       />
 
       <Canvas gl={{ antialias: true }}>
@@ -476,7 +544,7 @@ export default function Canvas3D() {
           onShapeAdd={handleShapeAdd}
           onShapeUpdate={handleShapeUpdate}
           onCalibrateConfirm={handleMeasureFromInteraction}
-          hoveredShapeId={hoveredShapeId} // <-- DODANO BRAKUJĄCY PROP
+          hoveredShapeId={hoveredShapeId}
           setHoveredShapeId={setHoveredShapeId}
           isSnapEnabled={isSnapEnabled}
           editingShapeId={editingShapeId}
@@ -487,7 +555,9 @@ export default function Canvas3D() {
         />
       </Canvas>
 
-      {backgroundImage && <ImageInfoPanel data={backgroundImage} />}
+      {backgroundImage && (
+        <ImageInfoPanel data={backgroundImage} canvasScale={canvasScale} />
+      )}
 
       <CanvasScaleModal
         key={isCalibratingRuler ? "ruler" : "import"}
@@ -498,6 +568,13 @@ export default function Canvas3D() {
         initialPixels={isCalibratingRuler ? measuredPixels : 1}
         // @ts-ignore
         title={isCalibratingRuler ? "Kalibracja wymiaru" : "Skala płótna"}
+      />
+
+      <CanvasSettingsModal
+        isOpen={isCanvasSettingsOpen}
+        onClose={() => setIsCanvasSettingsOpen(false)}
+        onApply={handleCanvasScaleChange}
+        currentCanvasScale={canvasScale}
       />
 
       {editingShape && (
@@ -511,6 +588,7 @@ export default function Canvas3D() {
           faceDirection={editingShape.faceDirection}
           isChild={!!editingShape.parentId}
           onMove={(dx, dy, dz) => handleShapeMove(editingShape.id, dx, dy, dz)}
+          canvasScale={canvasScale}
         />
       )}
 

@@ -7,6 +7,7 @@ import {
   FaCompressArrowsAlt,
   FaCube,
   FaCircle,
+  FaCog,
 } from "react-icons/fa";
 import { EditorMode } from "../Editor/types";
 
@@ -17,6 +18,8 @@ interface ToolbarProps {
   onImageSelect: (file: File) => void;
   isSnapEnabled: boolean;
   onToggleSnap: () => void;
+  canvasScale: number;
+  onOpenCanvasSettings: () => void;
 }
 
 export default function Toolbar({
@@ -26,6 +29,8 @@ export default function Toolbar({
   onImageSelect,
   isSnapEnabled,
   onToggleSnap,
+  canvasScale,
+  onOpenCanvasSettings,
 }: ToolbarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,7 +51,6 @@ export default function Toolbar({
     { id: "DRAW_RECT", icon: FaVectorSquare, label: "Rysuj" },
     { id: "EXTRUDE", icon: FaCube, label: "Wyciągnij" },
     { id: "PLACE_SPHERE", icon: FaCircle, label: "Obiekt" },
-    // --- NOWE: Dodajemy narzędzie Kalibracji ---
     { id: "CALIBRATE", icon: FaRulerCombined, label: "Kalibruj" },
   ] as const;
 
@@ -105,6 +109,21 @@ export default function Toolbar({
       </button>
 
       <div className="w-full h-px bg-gray-200 my-1"></div>
+
+      {/* USTAWIENIA PŁÓTNA */}
+      <button
+        onClick={onOpenCanvasSettings}
+        title={`Skala płótna: 1 unit = ${canvasScale} mm`}
+        className="flex flex-col items-center justify-center w-12 h-12 rounded text-gray-600 hover:bg-gray-100 transition-all relative"
+      >
+        <FaCog size={18} className="mb-1" />
+        <span className="text-[9px] font-medium">Skala</span>
+        {canvasScale !== 1 && (
+          <span className="absolute -top-1 -right-1 bg-blue-600 text-white text-[7px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
+            {canvasScale <= 99 ? `${canvasScale}` : "!"}
+          </span>
+        )}
+      </button>
 
       {/* SEKCJA AKCJI */}
       <button

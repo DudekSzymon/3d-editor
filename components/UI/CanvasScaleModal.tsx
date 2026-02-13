@@ -15,24 +15,25 @@ export default function CanvasScaleModal({
   initialPixels = 1,
   title = "Skala płótna",
 }: CanvasScaleModalProps) {
-  const [pixels, setPixels] = useState(initialPixels);
-  const [units, setUnits] = useState(1);
+  const [pixels, setPixels] = useState(initialPixels.toString());
+  const [units, setUnits] = useState("1");
 
-  // --- TUTAJ JEST ZMIANA ---
   useEffect(() => {
     if (isOpen) {
-      // Używamy .toFixed(2), żeby skrócić liczbę do dwóch miejsc po przecinku
-      // Funkcja Number() zamienia ten tekst z powrotem na liczbę dla inputa
-      setPixels(Number(initialPixels.toFixed(2)));
+      setPixels(Number(initialPixels.toFixed(2)).toString());
+      setUnits("1");
     }
   }, [isOpen, initialPixels]);
-  // -------------------------
 
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onConfirm(pixels, units);
+    const px = parseFloat(pixels) || 0;
+    const u = parseFloat(units) || 0;
+    if (px > 0 && u > 0) {
+      onConfirm(px, u);
+    }
   };
 
   return (
@@ -49,7 +50,7 @@ export default function CanvasScaleModal({
                 min="0.0001"
                 step="any"
                 value={pixels}
-                onChange={(e) => setPixels(parseFloat(e.target.value))}
+                onChange={(e) => setPixels(e.target.value)}
                 className="border border-gray-300 rounded px-2 py-1 w-24 text-center bg-gray-50"
               />
             </div>
@@ -66,7 +67,7 @@ export default function CanvasScaleModal({
                   min="0.0001"
                   step="any"
                   value={units}
-                  onChange={(e) => setUnits(parseFloat(e.target.value))}
+                  onChange={(e) => setUnits(e.target.value)}
                   className="border border-gray-300 rounded px-2 py-1 w-24 text-center"
                   autoFocus
                 />

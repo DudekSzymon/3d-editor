@@ -20,6 +20,7 @@ interface HeightInputPanelProps {
   orientation?: "xz" | "xy" | "yz";
   faceDirection?: number;
   isChild?: boolean;
+  canvasScale?: number;
 }
 
 export default function HeightInputPanel({
@@ -32,47 +33,53 @@ export default function HeightInputPanel({
   orientation = "xz",
   faceDirection,
   isChild = false,
+  canvasScale = 1,
 }: HeightInputPanelProps) {
   const isSphere = shape.type === "sphere";
+  const cs = canvasScale; // skrót
 
   const { width: currentWidth, depth: currentDepth } = useMemo(() => {
     return getShapeBoxParams(shape);
   }, [shape]);
 
-  const [heightValue, setHeightValue] = useState(currentHeight.toString());
-  const [baseYValue, setBaseYValue] = useState(currentBaseY.toString());
-  const [widthValue, setWidthValue] = useState(currentWidth.toFixed(2));
-  const [depthValue, setDepthValue] = useState(currentDepth.toFixed(2));
-  const [moveStep, setMoveStep] = useState(1);
+  // Wszystkie wartości w panelu są w mm (scene units * canvasScale)
+  const [heightValue, setHeightValue] = useState(
+    (currentHeight * cs).toString(),
+  );
+  const [baseYValue, setBaseYValue] = useState((currentBaseY * cs).toString());
+  const [widthValue, setWidthValue] = useState((currentWidth * cs).toFixed(2));
+  const [depthValue, setDepthValue] = useState((currentDepth * cs).toFixed(2));
+  const [moveStep, setMoveStep] = useState(1); // krok w mm
 
-  // Stany dla sfery
+  // Stany dla sfery (w mm)
   const [radiusValue, setRadiusValue] = useState(
-    (shape.radius || 10).toFixed(2),
+    ((shape.radius || 10) * cs).toFixed(2),
   );
-  const [centerX, setCenterX] = useState((shape.center?.[0] || 0).toFixed(2));
-
-  const [centerY, setCenterY] = useState((shape.center?.[2] || 0).toFixed(2)); // Głębokość
+  const [centerX, setCenterX] = useState(
+    ((shape.center?.[0] || 0) * cs).toFixed(2),
+  );
+  const [centerY, setCenterY] = useState(
+    ((shape.center?.[2] || 0) * cs).toFixed(2),
+  ); // Głębokość
   const [centerZ, setCenterZ] = useState(
-    (shape.center?.[1] || shape.radius || 10).toFixed(2), // Wysokość
-  );
+    ((shape.center?.[1] || shape.radius || 10) * cs).toFixed(2),
+  ); // Wysokość
 
   const heightInputRef = useRef<HTMLInputElement>(null);
   const radiusInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isSphere) {
-      setRadiusValue((shape.radius || 10).toFixed(2));
-      setCenterX((shape.center?.[0] || 0).toFixed(2));
-
-      setCenterY((shape.center?.[2] || 0).toFixed(2)); // User Y = World Z
-      setCenterZ((shape.center?.[1] || shape.radius || 10).toFixed(2)); // User Z = World Y
-
+      setRadiusValue(((shape.radius || 10) * cs).toFixed(2));
+      setCenterX(((shape.center?.[0] || 0) * cs).toFixed(2));
+      setCenterY(((shape.center?.[2] || 0) * cs).toFixed(2));
+      setCenterZ(((shape.center?.[1] || shape.radius || 10) * cs).toFixed(2));
       setTimeout(() => radiusInputRef.current?.select(), 50);
     } else {
-      setHeightValue(currentHeight.toFixed(2));
-      setBaseYValue(currentBaseY.toFixed(2));
-      setWidthValue(currentWidth.toFixed(2));
-      setDepthValue(currentDepth.toFixed(2));
+      setHeightValue((currentHeight * cs).toFixed(2));
+      setBaseYValue((currentBaseY * cs).toFixed(2));
+      setWidthValue((currentWidth * cs).toFixed(2));
+      setDepthValue((currentDepth * cs).toFixed(2));
       setTimeout(() => heightInputRef.current?.select(), 50);
     }
   }, [
@@ -82,42 +89,45 @@ export default function HeightInputPanel({
     currentDepth,
     isSphere,
     shape,
+    cs,
   ]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (isSphere) {
-      const radius = parseFloat(radiusValue);
-      const cx = parseFloat(centerX);
-      const cy = parseFloat(centerY);
-      const cz = parseFloat(centerZ);
+      const radiusMM = parseFloat(radiusValue);
+      const cxMM = parseFloat(centerX);
+      const cyMM = parseFloat(centerY);
+      const czMM = parseFloat(centerZ);
 
-      if (!isNaN(radius) && !isNaN(cx) && !isNaN(cy) && !isNaN(cz)) {
+      if (!isNaN(radiusMM) && !isNaN(cxMM) && !isNaN(cyMM) && !isNaN(czMM)) {
+        // Konwersja mm → scene units
         onApply({
           height: 0,
           baseY: 0,
-          radius,
-          center: [cx, cz, cy],
+          radius: radiusMM / cs,
+          center: [cxMM / cs, czMM / cs, cyMM / cs],
         });
       }
     } else {
-      const height = parseFloat(heightValue);
-      const baseY = parseFloat(baseYValue);
-      const newWidth = parseFloat(widthValue);
-      const newDepth = parseFloat(depthValue);
+      const heightMM = parseFloat(heightValue);
+      const baseYMM = parseFloat(baseYValue);
+      const newWidthMM = parseFloat(widthValue);
+      const newDepthMM = parseFloat(depthValue);
 
       if (
-        !isNaN(height) &&
-        !isNaN(baseY) &&
-        !isNaN(newWidth) &&
-        !isNaN(newDepth)
+        !isNaN(heightMM) &&
+        !isNaN(baseYMM) &&
+        !isNaN(newWidthMM) &&
+        !isNaN(newDepthMM)
       ) {
+        // Konwersja mm → scene units
         onApply({
-          height,
-          baseY,
-          newWidth,
-          newDepth,
+          height: heightMM / cs,
+          baseY: baseYMM / cs,
+          newWidth: newWidthMM / cs,
+          newDepth: newDepthMM / cs,
         });
       }
     }
@@ -130,9 +140,9 @@ export default function HeightInputPanel({
   };
 
   const handleMoveClick = (dir: "up" | "down" | "left" | "right") => {
-    const s = moveStep;
+    // moveStep jest w mm, konwertujemy na scene units
+    const s = moveStep / cs;
     if (isSphere) {
-      // Dla sfery: up/down = Y, left/right = X (Z pozostaje bez zmian)
       if (dir === "up") onMove(0, s, 0);
       if (dir === "down") onMove(0, -s, 0);
       if (dir === "left") onMove(-s, 0, 0);
@@ -207,22 +217,29 @@ export default function HeightInputPanel({
     <div className="absolute top-20 left-4 bg-white shadow-xl border-2 border-blue-500 rounded-lg p-4 z-50 w-80 max-h-[calc(100vh-100px)] overflow-y-auto">
       <h3 className="text-sm font-bold text-gray-800 mb-3 flex justify-between items-center">
         <span>{isSphere ? "Edycja Kulki" : "Panel Edycji"}</span>
-        {isSphere && (
-          <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded">
-            KAMERA
-          </span>
-        )}
-        {!isSphere && isChild && (
-          <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded">
-            NA ŚCIANIE
-          </span>
-        )}
+        <div className="flex gap-1">
+          {canvasScale !== 1 && (
+            <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded">
+              1u={cs}mm
+            </span>
+          )}
+          {isSphere && (
+            <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded">
+              KAMERA
+            </span>
+          )}
+          {!isSphere && isChild && (
+            <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded">
+              NA ŚCIANIE
+            </span>
+          )}
+        </div>
       </h3>
 
-      {/* AKTUALNE WYMIARY - tylko do odczytu */}
+      {/* AKTUALNE WYMIARY - w mm */}
       <div className="mb-4 p-3 bg-gray-50 rounded-md border border-gray-300">
         <label className="block text-[10px] font-bold text-gray-600 uppercase mb-2 text-center">
-          {isSphere ? "Aktualne parametry" : "Aktualne wymiary"}
+          {isSphere ? "Aktualne parametry (mm)" : "Aktualne wymiary (mm)"}
         </label>
         {isSphere ? (
           <div className="grid grid-cols-4 gap-2 text-center">
@@ -231,25 +248,25 @@ export default function HeightInputPanel({
                 Promień
               </div>
               <div className="text-sm font-mono font-bold text-gray-700">
-                {(shape.radius || 10).toFixed(1)}
+                {((shape.radius || 10) * cs).toFixed(1)}
               </div>
             </div>
             <div>
               <div className="text-[9px] text-gray-500 font-semibold">X</div>
               <div className="text-sm font-mono font-bold text-gray-700">
-                {(shape.center?.[0] || 0).toFixed(1)}
+                {((shape.center?.[0] || 0) * cs).toFixed(1)}
               </div>
             </div>
             <div>
               <div className="text-[9px] text-gray-500 font-semibold">Y</div>
               <div className="text-sm font-mono font-bold text-gray-700">
-                {(shape.center?.[1] || shape.radius || 10).toFixed(1)}
+                {((shape.center?.[1] || shape.radius || 10) * cs).toFixed(1)}
               </div>
             </div>
             <div>
               <div className="text-[9px] text-gray-500 font-semibold">Z</div>
               <div className="text-sm font-mono font-bold text-gray-700">
-                {(shape.center?.[2] || 0).toFixed(1)}
+                {((shape.center?.[2] || 0) * cs).toFixed(1)}
               </div>
             </div>
           </div>
@@ -260,7 +277,7 @@ export default function HeightInputPanel({
                 Szerokość
               </div>
               <div className="text-sm font-mono font-bold text-gray-700">
-                {currentWidth.toFixed(1)}
+                {(currentWidth * cs).toFixed(1)}
               </div>
             </div>
             <div>
@@ -268,7 +285,7 @@ export default function HeightInputPanel({
                 Głębokość
               </div>
               <div className="text-sm font-mono font-bold text-gray-700">
-                {currentDepth.toFixed(1)}
+                {(currentDepth * cs).toFixed(1)}
               </div>
             </div>
             <div>
@@ -276,7 +293,7 @@ export default function HeightInputPanel({
                 Wysokość
               </div>
               <div className="text-sm font-mono font-bold text-gray-700">
-                {Math.abs(currentHeight).toFixed(1)}
+                {(Math.abs(currentHeight) * cs).toFixed(1)}
               </div>
             </div>
           </div>
@@ -330,7 +347,6 @@ export default function HeightInputPanel({
               Parametry kulki (mm)
             </label>
 
-            {/* Promień */}
             <div className="mb-3">
               <label className="block text-[10px] font-semibold text-gray-700 mb-1">
                 Promień (mm)
@@ -347,7 +363,6 @@ export default function HeightInputPanel({
               />
             </div>
 
-            {/* Pozycje X, Y, Z */}
             <div className="grid grid-cols-3 gap-2">
               <div>
                 <label className="block text-[10px] font-semibold text-gray-700 mb-1">
