@@ -50,10 +50,11 @@ export default function HeightInputPanel({
     (shape.radius || 10).toFixed(2),
   );
   const [centerX, setCenterX] = useState((shape.center?.[0] || 0).toFixed(2));
-  const [centerY, setCenterY] = useState(
-    (shape.center?.[1] || shape.radius || 10).toFixed(2),
+
+  const [centerY, setCenterY] = useState((shape.center?.[2] || 0).toFixed(2)); // Głębokość
+  const [centerZ, setCenterZ] = useState(
+    (shape.center?.[1] || shape.radius || 10).toFixed(2), // Wysokość
   );
-  const [centerZ, setCenterZ] = useState((shape.center?.[2] || 0).toFixed(2));
 
   const heightInputRef = useRef<HTMLInputElement>(null);
   const radiusInputRef = useRef<HTMLInputElement>(null);
@@ -62,8 +63,10 @@ export default function HeightInputPanel({
     if (isSphere) {
       setRadiusValue((shape.radius || 10).toFixed(2));
       setCenterX((shape.center?.[0] || 0).toFixed(2));
-      setCenterY((shape.center?.[1] || shape.radius || 10).toFixed(2));
-      setCenterZ((shape.center?.[2] || 0).toFixed(2));
+
+      setCenterY((shape.center?.[2] || 0).toFixed(2)); // User Y = World Z
+      setCenterZ((shape.center?.[1] || shape.radius || 10).toFixed(2)); // User Z = World Y
+
       setTimeout(() => radiusInputRef.current?.select(), 50);
     } else {
       setHeightValue(currentHeight.toFixed(2));
@@ -95,7 +98,7 @@ export default function HeightInputPanel({
           height: 0,
           baseY: 0,
           radius,
-          center: [cx, cy, cz],
+          center: [cx, cz, cy],
         });
       }
     } else {
