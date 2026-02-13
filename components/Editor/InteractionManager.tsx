@@ -52,6 +52,9 @@ export default function InteractionManager({
   const { camera, raycaster, pointer } = useThree();
 
   const lastSnapRef = useRef<THREE.Vector3 | null>(null);
+  // NOWE REF-Y: Zapamiętują stan w momencie kliknięcia
+  const dragStartIntersectRef = useRef<THREE.Vector3 | null>(null);
+  const dragStartShapeValueRef = useRef<any>(null);
 
   const [startPoint, setStartPoint] = useState<THREE.Vector3 | null>(null);
   const [currentPoint, setCurrentPoint] = useState<THREE.Vector3 | null>(null);
@@ -119,6 +122,7 @@ export default function InteractionManager({
     }
 
     // PRZESUWANIE CAŁYCH BRYŁ (Wspólne dla EXTRUDE i PLACE_SPHERE)
+    // POPRAWIONE: Używamy dragStartIntersectRef zamiast lastSnapRef dla płynności
     if (
       (mode === "EXTRUDE" || (mode === "PLACE_SPHERE" && !placingSphereId)) &&
       editingShapeId &&
@@ -127,40 +131,41 @@ export default function InteractionManager({
       !activeExtrudeId
     ) {
       const shape = shapes.find((s) => s.id === editingShapeId);
-      if (shape && lastSnapRef.current) {
+      if (shape && dragStartIntersectRef.current) {
         const cameraDirection = new THREE.Vector3();
         camera.getWorldDirection(cameraDirection);
         const plane = new THREE.Plane();
         plane.setFromNormalAndCoplanarPoint(
           cameraDirection,
-          lastSnapRef.current,
+          dragStartIntersectRef.current,
         );
         raycaster.setFromCamera(pointer, camera);
         const intersection = new THREE.Vector3();
 
         if (raycaster.ray.intersectPlane(plane, intersection)) {
-          const delta = intersection.clone().sub(lastSnapRef.current);
-          if (delta.length() > 0.01) {
-            if (shape.type === "sphere") {
-              // Przesuwanie sfery
-              const newCenter: [number, number, number] = [
-                shape.center![0] + delta.x,
-                shape.center![1] + delta.y,
-                shape.center![2] + delta.z,
-              ];
-              onShapeUpdate(editingShapeId, { center: newCenter });
-            } else {
-              // Przesuwanie prostokąta
-              const newPoints = shape.points.map((p) => [
-                p[0] + delta.x,
-                p[1] + delta.y,
-                p[2] + delta.z,
-              ]);
-              onShapeUpdate(editingShapeId, {
-                points: newPoints as [number, number, number][],
-              });
-            }
-            lastSnapRef.current = intersection.clone();
+          // Obliczamy całkowity wektor przesunięcia od momentu kliknięcia
+          const totalDelta = intersection
+            .clone()
+            .sub(dragStartIntersectRef.current);
+
+          if (shape.type === "sphere") {
+            const startCenter = dragStartShapeValueRef.current;
+            const newCenter: [number, number, number] = [
+              startCenter[0] + totalDelta.x,
+              startCenter[1] + totalDelta.y,
+              startCenter[2] + totalDelta.z,
+            ];
+            onShapeUpdate(editingShapeId, { center: newCenter });
+          } else {
+            const startPoints = dragStartShapeValueRef.current;
+            const newPoints = startPoints.map((p: any) => [
+              p[0] + totalDelta.x,
+              p[1] + totalDelta.y,
+              p[2] + totalDelta.z,
+            ]);
+            onShapeUpdate(editingShapeId, {
+              points: newPoints as [number, number, number][],
+            });
           }
         }
         return;
@@ -176,14 +181,12 @@ export default function InteractionManager({
         const deltaY = (pointer.y - extrudeStartY) * 150;
         let newValue = initialShapeHeight + deltaY;
 
-        // Dla sfer - edytujemy promień
         if (shape.type === "sphere") {
           newValue = Math.max(1, newValue);
           onShapeUpdate(activeExtrudeId, { radius: newValue });
           return;
         }
 
-        // Dla prostokątów
         const snapThreshold = 1.0;
         let snappedH: number | null = null;
         for (const s of shapes) {
@@ -205,48 +208,56 @@ export default function InteractionManager({
         return;
       }
 
+      // POPRAWIONE: Logika SIDE_X i SIDE_Z również na "absolute dragging"
       if (
         (dragMode === "SIDE_X" || dragMode === "SIDE_Z") &&
-        lastSnapRef.current
+        dragStartIntersectRef.current
       ) {
         const shape = shapes.find((s) => s.id === activeExtrudeId);
         if (!shape) return;
 
         const dragPlane = new THREE.Plane(
           new THREE.Vector3(0, 1, 0),
-          -lastSnapRef.current.y,
+          -dragStartIntersectRef.current.y,
         );
         raycaster.setFromCamera(pointer, camera);
         const intersection = new THREE.Vector3();
 
         if (raycaster.ray.intersectPlane(dragPlane, intersection)) {
-          const delta = intersection.clone().sub(lastSnapRef.current);
-          if (delta.length() < 0.001) return;
+          const totalDelta = intersection
+            .clone()
+            .sub(dragStartIntersectRef.current);
 
-          const { center } = getShapeBoxParams(shape);
-          const newPoints = shape.points.map((p) => [...p]) as [
+          const startPoints = dragStartShapeValueRef.current as [
             number,
             number,
             number,
           ][];
+          const minX = Math.min(...startPoints.map((p) => p[0]));
+          const maxX = Math.max(...startPoints.map((p) => p[0]));
+          const minZ = Math.min(...startPoints.map((p) => p[2]));
+          const maxZ = Math.max(...startPoints.map((p) => p[2]));
+          const startCenterX = (minX + maxX) / 2;
+          const startCenterZ = (minZ + maxZ) / 2;
 
-          newPoints.forEach((p) => {
+          const newPoints = startPoints.map((p) => {
+            const newP = [...p] as [number, number, number];
             if (dragMode === "SIDE_X") {
               const isTargetSide =
                 dragDirection > 0
-                  ? p[0] > center.x - 0.1
-                  : p[0] < center.x + 0.1;
-              if (isTargetSide) p[0] += delta.x * 1.5;
+                  ? p[0] > startCenterX - 0.1
+                  : p[0] < startCenterX + 0.1;
+              if (isTargetSide) newP[0] += totalDelta.x * 1.5;
             } else if (dragMode === "SIDE_Z") {
               const isTargetSide =
                 dragDirection > 0
-                  ? p[2] > center.z - 0.1
-                  : p[2] < center.z + 0.1;
-              if (isTargetSide) p[2] += delta.z;
+                  ? p[2] > startCenterZ - 0.1
+                  : p[2] < startCenterZ + 0.1;
+              if (isTargetSide) newP[2] += totalDelta.z;
             }
+            return newP;
           });
           onShapeUpdate(activeExtrudeId, { points: newPoints });
-          lastSnapRef.current = intersection;
         }
         return;
       }
@@ -324,6 +335,9 @@ export default function InteractionManager({
         const intersection = new THREE.Vector3();
         if (raycaster.ray.intersectBox(box, intersection)) {
           lastSnapRef.current = intersection.clone();
+          // POPRAWIONE: Inicjalizacja refów dla przesuwania sfery
+          dragStartIntersectRef.current = intersection.clone();
+          dragStartShapeValueRef.current = [...hoveredShape.center!];
         }
         return;
       }
@@ -398,6 +412,16 @@ export default function InteractionManager({
             const intersection = new THREE.Vector3();
             if (raycaster.ray.intersectBox(box, intersection)) {
               lastSnapRef.current = intersection.clone();
+              // POPRAWIONE: Inicjalizacja refów dla przesuwania/edycji boków
+              dragStartIntersectRef.current = intersection.clone();
+              if (targetShape.type === "sphere") {
+                dragStartShapeValueRef.current = [...targetShape.center!];
+              } else {
+                dragStartShapeValueRef.current = targetShape.points.map((p) => [
+                  ...p,
+                ]);
+              }
+
               const epsilon = 0.15;
               const relativeP = intersection
                 .clone()

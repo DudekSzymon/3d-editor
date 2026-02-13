@@ -131,7 +131,7 @@ export default function InteractionOverlays({
           color="yellow" // Żółty kolor
           lineWidth={8} // Gruba linia (było 2)
           dashed={true}
-          dashScale={10} // Większa skala przerywania dla lepszej widoczności
+          dashScale={10}
         />
       )}
 
