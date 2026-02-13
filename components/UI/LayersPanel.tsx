@@ -256,6 +256,7 @@ function LayerSection({
           {layer.visible ? <FaEye size={12} /> : <FaEyeSlash size={12} />}
         </button>
 
+        {/* Usuń (nie dla domyślnej) */}
         {!isDefault && (
           <button
             onClick={onRemove}
