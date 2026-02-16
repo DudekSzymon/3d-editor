@@ -186,11 +186,13 @@ export default function InteractionOverlays({
             <Line
               points={[measureStartPoint, measureCurrentPoint]}
               color="#ff9800"
-              lineWidth={3}
+              lineWidth={6}
               dashed={true}
               dashScale={5}
               dashSize={3}
               gapSize={2}
+              renderOrder={999}
+              depthTest={false}
             />
 
             {/* Punkt końcowy podglądu */}

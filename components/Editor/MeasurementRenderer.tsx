@@ -81,8 +81,9 @@ function MeasurementLine({
       <Line
         points={[startVec, endVec]}
         color={lineColor}
-        lineWidth={isHovered ? 4 : 2.5}
+        lineWidth={isHovered ? 6 : 4}
         dashed={false}
+        depthTest={false}
       />
 
       {/* Punkt startowy */}
@@ -104,7 +105,8 @@ function MeasurementLine({
           startVec.clone().add(perpDir.clone().multiplyScalar(-wingSize)),
         ]}
         color={lineColor}
-        lineWidth={2}
+        lineWidth={3}
+        depthTest={false}
       />
       <Line
         points={[
@@ -112,7 +114,8 @@ function MeasurementLine({
           endVec.clone().add(perpDir.clone().multiplyScalar(-wingSize)),
         ]}
         color={lineColor}
-        lineWidth={2}
+        lineWidth={3}
+        depthTest={false}
       />
 
       {/* Etykieta z odległością */}
