@@ -44,6 +44,16 @@ export default function Canvas3D() {
         setMode("VIEW");
         setEditingShapeId(null);
       }
+      // Delete/Backspace — usuń zaznaczony obiekt
+      if (
+        (e.key === "Delete" || e.key === "Backspace") &&
+        editingShapeId &&
+        !(e.target instanceof HTMLInputElement)
+      ) {
+        e.preventDefault();
+        shapesManager.handleDeleteShape(editingShapeId);
+        setEditingShapeId(null);
+      }
       if (
         (e.ctrlKey || e.metaKey) &&
         e.key.toLowerCase() === "z" &&
@@ -63,7 +73,12 @@ export default function Canvas3D() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [shapesManager.undo, shapesManager.redo]);
+  }, [
+    shapesManager.undo,
+    shapesManager.redo,
+    editingShapeId,
+    shapesManager.handleDeleteShape,
+  ]);
 
   /* === Handlery edycji === */
   const handleHeightApply = (updates: {
@@ -79,10 +94,25 @@ export default function Canvas3D() {
     setEditingShapeId(null);
   };
 
+  const handleDeleteSelected = () => {
+    if (!editingShapeId) return;
+    shapesManager.handleDeleteShape(editingShapeId);
+    setEditingShapeId(null);
+  };
+
+  const handleColorChange = (color: string) => {
+    if (!editingShapeId) return;
+    shapesManager.handleColorChange(editingShapeId, color);
+  };
+
+  const handleEntityShapeChange = (entityShape: "sphere" | "cube") => {
+    if (!editingShapeId) return;
+    shapesManager.handleEntityShapeChange(editingShapeId, entityShape);
+  };
+
   const handleSelectShapeFromPanel = (shapeId: string) => {
     const shape = shapesManager.shapes.find((s) => s.id === shapeId);
     if (shape?.type === "measurement") {
-      // Wymiary nie mają panelu edycji — po prostu zaznacz
       setEditingShapeId(shapeId);
       return;
     }
@@ -102,7 +132,7 @@ export default function Canvas3D() {
       case "EXTRUDE":
         return "WYCIĄGANIE: Ciągnij figurę myszą lub kliknij aby wpisać wartość";
       case "PLACE_SPHERE":
-        return "KULKA: Kliknij aby umieścić kulkę, przeciągnij aby zmienić rozmiar";
+        return "OBIEKT: Kliknij aby umieścić, przeciągnij aby zmienić rozmiar";
       case "CALIBRATE":
         return "KALIBRACJA: Kliknij dwa punkty na obrazku, aby zmierzyć odległość referencyjną";
       case "MEASURE":
@@ -194,6 +224,11 @@ export default function Canvas3D() {
           shape={editingShape}
           onApply={handleHeightApply}
           onCancel={() => setEditingShapeId(null)}
+          onDelete={handleDeleteSelected}
+          onColorChange={handleColorChange}
+          onEntityShapeChange={
+            editingShape.type === "sphere" ? handleEntityShapeChange : undefined
+          }
           orientation={editingShape.orientation}
           faceDirection={editingShape.faceDirection}
           isChild={!!editingShape.parentId}
@@ -216,6 +251,10 @@ export default function Canvas3D() {
         onRenameLayer={layersManager.handleRenameLayer}
         onMoveShapeToLayer={shapesManager.handleMoveShapeToLayer}
         onSelectShape={handleSelectShapeFromPanel}
+        onDeleteShape={(id) => {
+          shapesManager.handleDeleteShape(id);
+          if (editingShapeId === id) setEditingShapeId(null);
+        }}
         canvasScale={imageScale.canvasScale}
         editingShapeId={editingShapeId}
       />

@@ -33,11 +33,11 @@ interface LayersPanelProps {
   onRenameLayer: (layerId: string, newName: string) => void;
   onMoveShapeToLayer: (shapeId: string, targetLayerId: string) => void;
   onSelectShape: (shapeId: string) => void;
+  onDeleteShape: (shapeId: string) => void;
   canvasScale: number;
   editingShapeId: string | null;
 }
 
-/** Zwraca czytelną pozycję obiektu */
 function getPositionLabel(shape: DrawnShape, cs: number): string {
   if (shape.type === "sphere") {
     const c = shape.center || [0, 0, 0];
@@ -52,7 +52,6 @@ function getPositionLabel(shape: DrawnShape, cs: number): string {
   return `(${(center.x * cs).toFixed(0)}, ${(center.y * cs).toFixed(0)}, ${(center.z * cs).toFixed(0)})`;
 }
 
-/** Zwraca czytelne wymiary */
 function getDimensionsLabel(shape: DrawnShape, cs: number): string {
   if (shape.type === "sphere") {
     return `r=${((shape.radius || 10) * cs).toFixed(1)}`;
@@ -67,25 +66,28 @@ function getDimensionsLabel(shape: DrawnShape, cs: number): string {
   return `${(width * cs).toFixed(0)}×${(depth * cs).toFixed(0)}×${(absHeight * cs).toFixed(0)}`;
 }
 
-/** Ikonka typu */
-function ShapeIcon({ type }: { type: "rect" | "sphere" | "measurement" }) {
-  if (type === "measurement") {
+function ShapeIcon({ shape }: { shape: DrawnShape }) {
+  if (shape.type === "measurement") {
     return <FaRulerHorizontal size={10} className="text-orange-500 shrink-0" />;
   }
-  return type === "sphere" ? (
-    <FaCircle size={10} className="text-red-500 shrink-0" />
-  ) : (
-    <FaCube size={10} className="text-blue-500 shrink-0" />
-  );
+  if (shape.type === "sphere") {
+    const color = shape.color || "#ff0000";
+    if (shape.entityShape === "cube") {
+      return <FaCube size={10} style={{ color }} className="shrink-0" />;
+    }
+    return <FaCircle size={10} style={{ color }} className="shrink-0" />;
+  }
+  const color = shape.color || "#3b82f6";
+  return <FaCube size={10} style={{ color }} className="shrink-0" />;
 }
 
-/** Pojedynczy element kształtu na liście — DRAGGABLE */
 function ShapeItem({
   shape,
   cs,
   isSelected,
   onSelect,
   onToggleVisibility,
+  onDelete,
   onDragStart,
 }: {
   shape: DrawnShape;
@@ -93,6 +95,7 @@ function ShapeItem({
   isSelected: boolean;
   onSelect: () => void;
   onToggleVisibility: () => void;
+  onDelete: () => void;
   onDragStart: (e: React.DragEvent, shapeId: string) => void;
 }) {
   return (
@@ -102,7 +105,7 @@ function ShapeItem({
       onClick={onSelect}
       className={`
         flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-all text-xs
-        hover:bg-gray-100 select-none
+        hover:bg-gray-100 select-none group
         ${isSelected ? "bg-blue-50 border border-blue-300" : "border border-transparent"}
         ${!shape.visible ? "opacity-40" : ""}
       `}
@@ -111,7 +114,7 @@ function ShapeItem({
       <div className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500">
         ⠿
       </div>
-      <ShapeIcon type={shape.type} />
+      <ShapeIcon shape={shape} />
       <div className="flex-1 min-w-0">
         <div className="font-medium text-gray-700 truncate text-[11px]">
           {shape.name}
@@ -122,7 +125,18 @@ function ShapeItem({
             : `${getPositionLabel(shape, cs)} · ${getDimensionsLabel(shape, cs)}`}
         </div>
       </div>
-      {/* Toggle widoczności per obiekt */}
+      {/* Usuń obiekt */}
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete();
+        }}
+        className="p-0.5 rounded text-gray-200 hover:text-red-500 transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+        title="Usuń obiekt"
+      >
+        <FaTrash size={9} />
+      </button>
+      {/* Toggle widoczności */}
       <button
         onClick={(e) => {
           e.stopPropagation();
@@ -141,7 +155,6 @@ function ShapeItem({
   );
 }
 
-/** Sekcja jednej warstwy */
 function LayerSection({
   layer,
   structures,
@@ -152,6 +165,7 @@ function LayerSection({
   onSelectShape,
   onToggleVisibility,
   onToggleShapeVisibility,
+  onDeleteShape,
   onRemove,
   onRename,
   onDragStart,
@@ -168,6 +182,7 @@ function LayerSection({
   onSelectShape: (id: string) => void;
   onToggleVisibility: () => void;
   onToggleShapeVisibility: (shapeId: string) => void;
+  onDeleteShape: (shapeId: string) => void;
   onRemove: () => void;
   onRename: (name: string) => void;
   onDragStart: (e: React.DragEvent, shapeId: string) => void;
@@ -211,7 +226,6 @@ function LayerSection({
         onDrop(e);
       }}
     >
-      {/* Nagłówek warstwy */}
       <div className="flex items-center gap-1 px-2 py-2 bg-gray-50 rounded-t-lg">
         <button
           onClick={() => setIsExpanded(!isExpanded)}
@@ -224,13 +238,11 @@ function LayerSection({
           )}
         </button>
 
-        {/* Kolor warstwy */}
         <div
           className="w-3 h-3 rounded-full shrink-0 border border-white shadow-sm"
           style={{ backgroundColor: layer.color }}
         />
 
-        {/* Nazwa — klikalna do edycji */}
         {isEditing ? (
           <input
             ref={inputRef}
@@ -259,10 +271,8 @@ function LayerSection({
           </span>
         )}
 
-        {/* Licznik */}
         <span className="text-[9px] text-gray-400 font-mono">{totalCount}</span>
 
-        {/* Toggle widoczności */}
         <button
           onClick={onToggleVisibility}
           className={`p-1 rounded transition-colors ${
@@ -275,7 +285,6 @@ function LayerSection({
           {layer.visible ? <FaEye size={12} /> : <FaEyeSlash size={12} />}
         </button>
 
-        {/* Usuń (nie dla domyślnej) */}
         {!isDefault && (
           <button
             onClick={onRemove}
@@ -287,7 +296,6 @@ function LayerSection({
         )}
       </div>
 
-      {/* Zawartość warstwy */}
       {isExpanded && (
         <div className="px-1 py-1">
           {totalCount === 0 && (
@@ -296,7 +304,6 @@ function LayerSection({
             </div>
           )}
 
-          {/* Struktury (rect) */}
           {structures.length > 0 && (
             <div className="mb-1">
               <div className="flex items-center gap-1 px-2 py-1">
@@ -313,13 +320,13 @@ function LayerSection({
                   isSelected={editingShapeId === s.id}
                   onSelect={() => onSelectShape(s.id)}
                   onToggleVisibility={() => onToggleShapeVisibility(s.id)}
+                  onDelete={() => onDeleteShape(s.id)}
                   onDragStart={onDragStart}
                 />
               ))}
             </div>
           )}
 
-          {/* Entity (sphere) */}
           {entities.length > 0 && (
             <div className="mb-1">
               <div className="flex items-center gap-1 px-2 py-1">
@@ -336,13 +343,13 @@ function LayerSection({
                   isSelected={editingShapeId === s.id}
                   onSelect={() => onSelectShape(s.id)}
                   onToggleVisibility={() => onToggleShapeVisibility(s.id)}
+                  onDelete={() => onDeleteShape(s.id)}
                   onDragStart={onDragStart}
                 />
               ))}
             </div>
           )}
 
-          {/* Wymiary (measurement) */}
           {measurements.length > 0 && (
             <div>
               <div className="flex items-center gap-1 px-2 py-1">
@@ -359,6 +366,7 @@ function LayerSection({
                   isSelected={editingShapeId === s.id}
                   onSelect={() => onSelectShape(s.id)}
                   onToggleVisibility={() => onToggleShapeVisibility(s.id)}
+                  onDelete={() => onDeleteShape(s.id)}
                   onDragStart={onDragStart}
                 />
               ))}
@@ -370,7 +378,6 @@ function LayerSection({
   );
 }
 
-/** Główny panel warstw */
 export default function LayersPanel({
   isOpen,
   onClose,
@@ -383,6 +390,7 @@ export default function LayersPanel({
   onRenameLayer,
   onMoveShapeToLayer,
   onSelectShape,
+  onDeleteShape,
   canvasScale,
   editingShapeId,
 }: LayersPanelProps) {
@@ -431,7 +439,6 @@ export default function LayersPanel({
 
   return (
     <div className="absolute top-0 right-0 w-72 h-full bg-white border-l border-gray-200 shadow-xl z-40 flex flex-col">
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center gap-2">
           <FaLayerGroup size={14} className="text-blue-600" />
@@ -450,7 +457,6 @@ export default function LayersPanel({
         </div>
       </div>
 
-      {/* Toolbar warstw */}
       <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
         {showAddForm ? (
           <div className="flex-1 flex items-center gap-1">
@@ -489,7 +495,6 @@ export default function LayersPanel({
         )}
       </div>
 
-      {/* Lista warstw */}
       <div className="flex-1 overflow-y-auto px-3 py-2">
         {layers.map((layer) => {
           const layerShapes = shapes.filter((s) => s.layerId === layer.id);
@@ -511,6 +516,7 @@ export default function LayersPanel({
               onSelectShape={onSelectShape}
               onToggleVisibility={() => onToggleLayerVisibility(layer.id)}
               onToggleShapeVisibility={onToggleShapeVisibility}
+              onDeleteShape={onDeleteShape}
               onRemove={() => onRemoveLayer(layer.id)}
               onRename={(name) => onRenameLayer(layer.id, name)}
               onDragStart={handleDragStart}
@@ -522,7 +528,6 @@ export default function LayersPanel({
         })}
       </div>
 
-      {/* Stopka z podsumowaniem */}
       <div className="px-4 py-2 border-t border-gray-200 bg-gray-50">
         <div className="flex justify-between text-[10px] text-gray-400">
           <span>{layers.length} warstw</span>

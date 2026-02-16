@@ -10,6 +10,9 @@ export type EditorMode =
 
 export type ShapeOrientation = "xz" | "xy" | "yz";
 
+/** Kształt obiektu (entity) — kula lub sześcian */
+export type EntityShape = "sphere" | "cube";
+
 export interface BackgroundImageData extends ImageInfoPanelData {
   url: string;
 }
@@ -22,6 +25,22 @@ export interface Layer {
 }
 
 export const DEFAULT_LAYER_ID = "default";
+
+/** Domyślne kolory do wyboru */
+export const SHAPE_COLORS = [
+  "#ff0000",
+  "#ff6600",
+  "#ffcc00",
+  "#33cc33",
+  "#0099ff",
+  "#6633cc",
+  "#ff33cc",
+  "#00cccc",
+  "#ff3366",
+  "#996633",
+  "#666666",
+  "#333333",
+];
 
 export function createDefaultLayers(): Layer[] {
   return [
@@ -44,9 +63,14 @@ export interface DrawnShape {
   height: number; // Wysokość/głębokość wyciągnięcia (dla rect)
   baseY: number; // Dla 'xz': pozycja Y podstawy (dla rect)
 
-  // Parametry dla sfery
-  radius?: number; // Promień kuli
-  center?: [number, number, number]; // Środek kuli [x, y, z]
+  /** Kolor obiektu (hex). Domyślnie: #e5e7eb dla rect, #ff0000 dla sphere */
+  color?: string;
+
+  // Parametry dla sfery / obiektu
+  radius?: number; // Promień kuli (lub połowa boku sześcianu)
+  center?: [number, number, number]; // Środek obiektu [x, y, z]
+  /** Kształt obiektu entity: 'sphere' (domyślnie) lub 'cube' */
+  entityShape?: EntityShape;
 
   // Rysowanie na ścianach
   parentId?: string; // ID rodzica (jeśli narysowane na innej bryle)

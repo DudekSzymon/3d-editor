@@ -31,7 +31,6 @@ export const getHoveredShapeId = (
   const hits: HitInfo[] = [];
 
   for (const shape of shapes) {
-    // Pomijamy wymiary w hover
     if (shape.type === "measurement") continue;
 
     const { boxArgs, center } = getShapeBoxParams(shape);
@@ -84,9 +83,24 @@ export const getFaceHit = (
   let closestPoint: THREE.Vector3 | null = null;
 
   for (const shape of shapes) {
-    // Pomijamy sfery i wymiary - tylko prostokąty z wysokością
-    if (shape.type === "sphere" || shape.type === "measurement") continue;
-    if (!shape.height || Math.abs(shape.height) < 0.01) continue;
+    // Pomijamy wymiary
+    if (shape.type === "measurement") continue;
+
+    // Pomijamy kule (sfery) — ale NIE sześciany-entity!
+    if (shape.type === "sphere" && shape.entityShape !== "cube") continue;
+
+    // Dla rect: musi mieć wysokość
+    if (
+      shape.type === "rect" &&
+      (!shape.height || Math.abs(shape.height) < 0.01)
+    )
+      continue;
+
+    // Dla cube entity: musi mieć promień (rozmiar)
+    if (shape.type === "sphere" && shape.entityShape === "cube") {
+      const r = shape.radius || 10;
+      if (r < 0.01) continue;
+    }
 
     const { boxArgs, center } = getShapeBoxParams(shape);
     const halfW = boxArgs[0] / 2;
@@ -196,10 +210,49 @@ export const getSnappedPosition = (
         closestDist = dist;
         closestPt = centerPt;
       }
+
+      // Dla sześcianów-entity: snapuj do narożników i środków ścian
+      if (shape.entityShape === "cube") {
+        const r = shape.radius || 10;
+        const c = shape.center || [0, r, 0];
+        const corners = [
+          [c[0] - r, c[1] - r, c[2] - r],
+          [c[0] + r, c[1] - r, c[2] - r],
+          [c[0] - r, c[1] + r, c[2] - r],
+          [c[0] + r, c[1] + r, c[2] - r],
+          [c[0] - r, c[1] - r, c[2] + r],
+          [c[0] + r, c[1] - r, c[2] + r],
+          [c[0] - r, c[1] + r, c[2] + r],
+          [c[0] + r, c[1] + r, c[2] + r],
+        ];
+        for (const corner of corners) {
+          const pt = new THREE.Vector3(corner[0], corner[1], corner[2]);
+          const d = pt.distanceTo(rawPoint);
+          if (d < snapThreshold && d < closestDist) {
+            closestDist = d;
+            closestPt = pt;
+          }
+        }
+        const faceCenters = [
+          [c[0], c[1] + r, c[2]],
+          [c[0], c[1] - r, c[2]],
+          [c[0] + r, c[1], c[2]],
+          [c[0] - r, c[1], c[2]],
+          [c[0], c[1], c[2] + r],
+          [c[0], c[1], c[2] - r],
+        ];
+        for (const fc of faceCenters) {
+          const pt = new THREE.Vector3(fc[0], fc[1], fc[2]);
+          const d = pt.distanceTo(rawPoint);
+          if (d < snapThreshold && d < closestDist) {
+            closestDist = d;
+            closestPt = pt;
+          }
+        }
+      }
       continue;
     }
 
-    // Snapowanie do punktów wymiaru
     if (shape.type === "measurement") {
       const ms = shape.measureStart || [0, 0, 0];
       const me = shape.measureEnd || [0, 0, 0];

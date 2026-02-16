@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { DrawnShape, getShapeBoxParams } from "../Editor/types";
+import {
+  DrawnShape,
+  getShapeBoxParams,
+  SHAPE_COLORS,
+  EntityShape,
+} from "../Editor/types";
 
 interface HeightInputPanelProps {
   currentHeight: number;
@@ -17,6 +22,9 @@ interface HeightInputPanelProps {
   }) => void;
   onCancel: () => void;
   onMove: (dx: number, dy: number, dz: number) => void;
+  onDelete: () => void;
+  onColorChange: (color: string) => void;
+  onEntityShapeChange?: (entityShape: EntityShape) => void;
   orientation?: "xz" | "xy" | "yz";
   faceDirection?: number;
   isChild?: boolean;
@@ -30,28 +38,29 @@ export default function HeightInputPanel({
   onApply,
   onCancel,
   onMove,
+  onDelete,
+  onColorChange,
+  onEntityShapeChange,
   orientation = "xz",
   faceDirection,
   isChild = false,
   canvasScale = 1,
 }: HeightInputPanelProps) {
   const isSphere = shape.type === "sphere";
-  const cs = canvasScale; // skrót
+  const cs = canvasScale;
 
   const { width: currentWidth, depth: currentDepth } = useMemo(() => {
     return getShapeBoxParams(shape);
   }, [shape]);
 
-  // Wszystkie wartości w panelu są w mm (scene units * canvasScale)
   const [heightValue, setHeightValue] = useState(
     (currentHeight * cs).toString(),
   );
   const [baseYValue, setBaseYValue] = useState((currentBaseY * cs).toString());
   const [widthValue, setWidthValue] = useState((currentWidth * cs).toFixed(2));
   const [depthValue, setDepthValue] = useState((currentDepth * cs).toFixed(2));
-  const [moveStep, setMoveStep] = useState(1); // krok w mm
+  const [moveStep, setMoveStep] = useState(1);
 
-  // Stany dla sfery (w mm)
   const [radiusValue, setRadiusValue] = useState(
     ((shape.radius || 10) * cs).toFixed(2),
   );
@@ -60,10 +69,16 @@ export default function HeightInputPanel({
   );
   const [centerY, setCenterY] = useState(
     ((shape.center?.[2] || 0) * cs).toFixed(2),
-  ); // Głębokość
+  );
   const [centerZ, setCenterZ] = useState(
     ((shape.center?.[1] || shape.radius || 10) * cs).toFixed(2),
-  ); // Wysokość
+  );
+
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [customColor, setCustomColor] = useState(
+    shape.color || (isSphere ? "#ff0000" : "#e5e7eb"),
+  );
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const heightInputRef = useRef<HTMLInputElement>(null);
   const radiusInputRef = useRef<HTMLInputElement>(null);
@@ -82,6 +97,7 @@ export default function HeightInputPanel({
       setDepthValue((currentDepth * cs).toFixed(2));
       setTimeout(() => heightInputRef.current?.select(), 50);
     }
+    setCustomColor(shape.color || (isSphere ? "#ff0000" : "#e5e7eb"));
   }, [
     currentHeight,
     currentBaseY,
@@ -102,7 +118,6 @@ export default function HeightInputPanel({
       const czMM = parseFloat(centerZ);
 
       if (!isNaN(radiusMM) && !isNaN(cxMM) && !isNaN(cyMM) && !isNaN(czMM)) {
-        // Konwersja mm → scene units
         onApply({
           height: 0,
           baseY: 0,
@@ -122,7 +137,6 @@ export default function HeightInputPanel({
         !isNaN(newWidthMM) &&
         !isNaN(newDepthMM)
       ) {
-        // Konwersja mm → scene units
         onApply({
           height: heightMM / cs,
           baseY: baseYMM / cs,
@@ -140,7 +154,6 @@ export default function HeightInputPanel({
   };
 
   const handleMoveClick = (dir: "up" | "down" | "left" | "right") => {
-    // moveStep jest w mm, konwertujemy na scene units
     const s = moveStep / cs;
     if (isSphere) {
       if (dir === "up") onMove(0, s, 0);
@@ -165,6 +178,12 @@ export default function HeightInputPanel({
         if (dir === "right") onMove(0, 0, -s);
       }
     }
+  };
+
+  const handleColorSelect = (color: string) => {
+    setCustomColor(color);
+    onColorChange(color);
+    setShowColorPicker(false);
   };
 
   const getBaseLabel = () => {
@@ -213,10 +232,12 @@ export default function HeightInputPanel({
     }
   };
 
+  const currentEntityShape = shape.entityShape || "sphere";
+
   return (
     <div className="absolute top-20 left-4 bg-white shadow-xl border-2 border-blue-500 rounded-lg p-4 z-50 w-80 max-h-[calc(100vh-100px)] overflow-y-auto">
       <h3 className="text-sm font-bold text-gray-800 mb-3 flex justify-between items-center">
-        <span>{isSphere ? "Edycja Kulki" : "Panel Edycji"}</span>
+        <span>{isSphere ? "Edycja Obiektu" : "Panel Edycji"}</span>
         <div className="flex gap-1">
           {canvasScale !== 1 && (
             <span className="text-[10px] bg-blue-100 text-blue-600 px-2 py-0.5 rounded">
@@ -225,7 +246,7 @@ export default function HeightInputPanel({
           )}
           {isSphere && (
             <span className="text-[10px] bg-red-100 text-red-600 px-2 py-0.5 rounded">
-              KAMERA
+              {currentEntityShape === "cube" ? "SZEŚCIAN" : "KULA"}
             </span>
           )}
           {!isSphere && isChild && (
@@ -236,7 +257,122 @@ export default function HeightInputPanel({
         </div>
       </h3>
 
-      {/* AKTUALNE WYMIARY - w mm */}
+      {/* ========== KOLOR ========== */}
+      <div className="mb-4 p-3 bg-gray-50 rounded-md border border-gray-200">
+        <div className="flex items-center justify-between mb-2">
+          <label className="text-[10px] font-bold text-gray-500 uppercase">
+            Kolor obiektu
+          </label>
+          <button
+            type="button"
+            onClick={() => setShowColorPicker(!showColorPicker)}
+            className="flex items-center gap-1.5 px-2 py-1 rounded border border-gray-300 hover:bg-gray-100 transition-colors"
+          >
+            <div
+              className="w-4 h-4 rounded border border-gray-400"
+              style={{ backgroundColor: customColor }}
+            />
+            <span className="text-[10px] font-mono text-gray-600">
+              {customColor}
+            </span>
+          </button>
+        </div>
+
+        {showColorPicker && (
+          <div className="mt-2">
+            <div className="grid grid-cols-6 gap-1.5 mb-2">
+              {SHAPE_COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => handleColorSelect(c)}
+                  className={`w-8 h-8 rounded-md border-2 transition-all hover:scale-110 ${
+                    customColor === c
+                      ? "border-blue-500 ring-2 ring-blue-200"
+                      : "border-gray-300"
+                  }`}
+                  style={{ backgroundColor: c }}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={customColor}
+                onChange={(e) => {
+                  setCustomColor(e.target.value);
+                  onColorChange(e.target.value);
+                }}
+                className="w-8 h-8 rounded cursor-pointer border border-gray-300"
+              />
+              <input
+                type="text"
+                value={customColor}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCustomColor(val);
+                  if (/^#[0-9a-fA-F]{6}$/.test(val)) {
+                    onColorChange(val);
+                  }
+                }}
+                className="flex-1 text-xs border border-gray-300 rounded px-2 py-1 font-mono text-gray-700"
+                placeholder="#ff0000"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ========== ZMIANA KSZTAŁTU ENTITY ========== */}
+      {isSphere && onEntityShapeChange && (
+        <div className="mb-4 p-3 bg-purple-50 rounded-md border border-purple-200">
+          <label className="block text-[10px] font-bold text-purple-700 uppercase mb-2">
+            Kształt obiektu
+          </label>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => onEntityShapeChange("sphere")}
+              className={`flex-1 flex flex-col items-center gap-1 py-2 px-3 rounded-md border-2 transition-all ${
+                currentEntityShape === "sphere"
+                  ? "border-purple-500 bg-purple-100 text-purple-700"
+                  : "border-gray-300 bg-white text-gray-500 hover:bg-gray-50"
+              }`}
+            >
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <circle cx="12" cy="12" r="10" opacity="0.6" />
+              </svg>
+              <span className="text-[10px] font-bold">Kula</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onEntityShapeChange("cube")}
+              className={`flex-1 flex flex-col items-center gap-1 py-2 px-3 rounded-md border-2 transition-all ${
+                currentEntityShape === "cube"
+                  ? "border-purple-500 bg-purple-100 text-purple-700"
+                  : "border-gray-300 bg-white text-gray-500 hover:bg-gray-50"
+              }`}
+            >
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="currentColor"
+              >
+                <rect x="3" y="3" width="18" height="18" rx="2" opacity="0.6" />
+              </svg>
+              <span className="text-[10px] font-bold">Sześcian</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* AKTUALNE WYMIARY */}
       <div className="mb-4 p-3 bg-gray-50 rounded-md border border-gray-300">
         <label className="block text-[10px] font-bold text-gray-600 uppercase mb-2 text-center">
           {isSphere ? "Aktualne parametry (mm)" : "Aktualne wymiary (mm)"}
@@ -245,7 +381,7 @@ export default function HeightInputPanel({
           <div className="grid grid-cols-4 gap-2 text-center">
             <div>
               <div className="text-[9px] text-gray-500 font-semibold">
-                Promień
+                {currentEntityShape === "cube" ? "Bok/2" : "Promień"}
               </div>
               <div className="text-sm font-mono font-bold text-gray-700">
                 {((shape.radius || 10) * cs).toFixed(1)}
@@ -341,15 +477,16 @@ export default function HeightInputPanel({
 
       <form onSubmit={handleSubmit}>
         {isSphere ? (
-          // PANEL DLA SFERY
           <div className="mb-4 p-3 bg-red-50 rounded-md border border-red-300">
             <label className="block text-[10px] font-bold text-red-700 uppercase mb-3 text-center">
-              Parametry kulki (mm)
+              Parametry obiektu (mm)
             </label>
 
             <div className="mb-3">
               <label className="block text-[10px] font-semibold text-gray-700 mb-1">
-                Promień (mm)
+                {currentEntityShape === "cube"
+                  ? "Połowa boku (mm)"
+                  : "Promień (mm)"}
               </label>
               <input
                 ref={radiusInputRef}
@@ -406,7 +543,6 @@ export default function HeightInputPanel({
             </div>
           </div>
         ) : (
-          // PANEL DLA PROSTOKĄTÓW
           <>
             <div className="mb-4 p-3 bg-green-50 rounded-md border border-green-300">
               <label className="block text-[10px] font-bold text-green-700 uppercase mb-3 text-center">
@@ -480,7 +616,7 @@ export default function HeightInputPanel({
         )}
 
         {/* Przyciski akcji */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 mb-3">
           <button
             type="button"
             onClick={onCancel}
@@ -496,10 +632,63 @@ export default function HeightInputPanel({
                 : "bg-green-600 hover:bg-green-700"
             }`}
           >
-            ✓ Zastosuj zmiany
+            ✓ Zastosuj
           </button>
         </div>
       </form>
+
+      {/* ========== PRZYCISK USUWANIA ========== */}
+      <div className="border-t border-gray-200 pt-3">
+        {showDeleteConfirm ? (
+          <div className="p-3 bg-red-50 rounded-md border border-red-300">
+            <p className="text-xs text-red-700 font-semibold mb-2 text-center">
+              Na pewno usunąć ten obiekt?
+            </p>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(false)}
+                className="flex-1 px-3 py-2 text-xs text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 rounded transition-colors font-semibold"
+              >
+                Nie
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDelete();
+                  setShowDeleteConfirm(false);
+                }}
+                className="flex-1 px-3 py-2 text-xs text-white bg-red-600 hover:bg-red-700 rounded transition-colors font-bold"
+              >
+                Tak, usuń
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowDeleteConfirm(true)}
+            className="w-full px-4 py-2.5 text-sm text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded transition-colors font-semibold flex items-center justify-center gap-2"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <line x1="10" y1="11" x2="10" y2="17" />
+              <line x1="14" y1="11" x2="14" y2="17" />
+            </svg>
+            Usuń obiekt
+          </button>
+        )}
+      </div>
     </div>
   );
 }

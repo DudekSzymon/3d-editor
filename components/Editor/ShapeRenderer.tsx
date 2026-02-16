@@ -63,10 +63,7 @@ function ShapeOutline({
   color: string;
   lineWidth?: number;
 }) {
-  if (shape.type === "sphere") {
-    // Dla sfery nie rysujemy outline
-    return null;
-  }
+  if (shape.type === "sphere") return null;
 
   const orientation = shape.orientation || "xz";
   const baseY = shape.baseY || 0;
@@ -98,7 +95,12 @@ function SolidBox({
 }) {
   const { boxArgs, center } = getShapeBoxParams(shape);
   const is3D = Math.abs(shape.height) > 0.01;
-  const color = isHovered ? "#cbd5e1" : "#e5e7eb";
+  const baseColor = shape.color || "#e5e7eb";
+  const color = isHovered
+    ? new THREE.Color(baseColor)
+        .lerp(new THREE.Color("#ffffff"), 0.3)
+        .getHexString()
+    : baseColor;
 
   return (
     <group>
@@ -106,7 +108,7 @@ function SolidBox({
       <mesh position={[center.x, center.y, center.z]}>
         <boxGeometry args={boxArgs} />
         <meshStandardMaterial
-          color={color}
+          color={isHovered ? `#${color}` : baseColor}
           transparent={!is3D}
           opacity={is3D ? 1 : 0.15}
           side={THREE.DoubleSide}
@@ -123,7 +125,6 @@ function SolidBox({
   );
 }
 
-/** Komponent renderujący sferę */
 function SphereShape({
   shape,
   hoveredShapeId,
@@ -134,13 +135,18 @@ function SphereShape({
   const isHovered = hoveredShapeId === shape.id;
   const radius = shape.radius || 10;
   const center = shape.center || [0, radius, 0];
-  const color = isHovered ? "#ff6b6b" : "#ff0000";
+  const baseColor = shape.color || "#ff0000";
+  const color = isHovered
+    ? new THREE.Color(baseColor)
+        .lerp(new THREE.Color("#ffffff"), 0.3)
+        .getHexString()
+    : baseColor;
 
   return (
     <mesh position={[center[0], center[1], center[2]]}>
       <sphereGeometry args={[radius, 32, 32]} />
       <meshStandardMaterial
-        color={color}
+        color={isHovered ? `#${color}` : baseColor}
         transparent
         opacity={0.7}
         side={THREE.DoubleSide}
@@ -149,7 +155,125 @@ function SphereShape({
   );
 }
 
-/** Główny komponent renderujący bryłę z wycięciami CSG */
+/** Sześcian-entity BEZ dziur */
+function CubeEntitySimple({
+  shape,
+  hoveredShapeId,
+}: {
+  shape: DrawnShape;
+  hoveredShapeId?: string | null;
+}) {
+  const isHovered = hoveredShapeId === shape.id;
+  const radius = shape.radius || 10;
+  const center = shape.center || [0, radius, 0];
+  const size = radius * 2;
+  const baseColor = shape.color || "#ff0000";
+  const color = isHovered
+    ? new THREE.Color(baseColor)
+        .lerp(new THREE.Color("#ffffff"), 0.3)
+        .getHexString()
+    : baseColor;
+
+  return (
+    <group>
+      <mesh position={[center[0], center[1], center[2]]}>
+        <boxGeometry args={[size, size, size]} />
+        <meshStandardMaterial
+          color={isHovered ? `#${color}` : baseColor}
+          transparent
+          opacity={0.7}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <lineSegments position={[center[0], center[1], center[2]]}>
+        <edgesGeometry args={[new THREE.BoxGeometry(size, size, size)]} />
+        <lineBasicMaterial color="#000000" />
+      </lineSegments>
+    </group>
+  );
+}
+
+/** Sześcian-entity Z wyciętymi dziurami (CSG) */
+function CubeEntityCSG({
+  shape,
+  holeChildren,
+  hoveredShapeId,
+}: {
+  shape: DrawnShape;
+  holeChildren: DrawnShape[];
+  hoveredShapeId?: string | null;
+}) {
+  const isHovered = hoveredShapeId === shape.id;
+  const radius = shape.radius || 10;
+  const center = shape.center || [0, radius, 0];
+  const size = radius * 2;
+  const baseColor = shape.color || "#ff0000";
+
+  const activeCuts = holeChildren.filter((c) => Math.abs(c.height) > 0.01);
+
+  const csgGeometry = useMemo(() => {
+    if (activeCuts.length === 0) return null;
+    try {
+      const evaluator = new Evaluator();
+      const geo = new THREE.BoxGeometry(size, size, size);
+      let resultBrush = new Brush(geo);
+      resultBrush.position.set(center[0], center[1], center[2]);
+      resultBrush.updateMatrixWorld();
+
+      for (const child of activeCuts) {
+        const childBrush = createBrushFromShape(child, true);
+        resultBrush = evaluator.evaluate(resultBrush, childBrush, SUBTRACTION);
+      }
+      return resultBrush.geometry;
+    } catch (e) {
+      console.error("CSG error for cube entity:", e);
+      return null;
+    }
+  }, [shape, activeCuts, size, center]);
+
+  const color = isHovered
+    ? new THREE.Color(baseColor)
+        .lerp(new THREE.Color("#ffffff"), 0.3)
+        .getHexString()
+    : baseColor;
+
+  return (
+    <group>
+      {holeChildren.map((child) => {
+        const isChildHovered = hoveredShapeId === child.id;
+        return (
+          <ShapeOutline
+            key={`outline-${child.id}`}
+            shape={child}
+            color={isChildHovered ? "#fbbf24" : "#ff4444"}
+            lineWidth={isChildHovered ? 4 : 2}
+          />
+        );
+      })}
+
+      {csgGeometry ? (
+        <group>
+          <mesh geometry={csgGeometry}>
+            <meshStandardMaterial
+              color={isHovered ? `#${color}` : baseColor}
+              transparent
+              opacity={0.7}
+              side={THREE.DoubleSide}
+            />
+          </mesh>
+          <lineSegments>
+            <edgesGeometry args={[csgGeometry]} />
+            <lineBasicMaterial color="#000000" />
+          </lineSegments>
+        </group>
+      ) : (
+        <CubeEntitySimple shape={shape} hoveredShapeId={hoveredShapeId} />
+      )}
+    </group>
+  );
+}
+
+/** Bryła rect z wycięciami CSG */
 function CSGShape({
   rootShape,
   holeChildren,
@@ -162,7 +286,6 @@ function CSGShape({
   outlineColor?: string;
 }) {
   const isRootHovered = hoveredShapeId === rootShape.id;
-
   const is3D = Math.abs(rootShape.height) > 0.01;
   const activeCuts = holeChildren.filter((c) => Math.abs(c.height) > 0.01);
 
@@ -181,12 +304,16 @@ function CSGShape({
     }
   }, [rootShape, activeCuts, is3D]);
 
-  const color = isRootHovered ? "#cbd5e1" : "#e5e7eb";
+  const baseColor = rootShape.color || "#e5e7eb";
+  const color = isRootHovered
+    ? new THREE.Color(baseColor)
+        .lerp(new THREE.Color("#ffffff"), 0.3)
+        .getHexString()
+    : baseColor;
 
   return (
     <group>
       <ShapeOutline shape={rootShape} color={outlineColor} />
-
       {holeChildren.map((child) => {
         const isChildHovered = hoveredShapeId === child.id;
         return (
@@ -198,11 +325,13 @@ function CSGShape({
           />
         );
       })}
-
       {csgGeometry && is3D ? (
         <group>
           <mesh geometry={csgGeometry}>
-            <meshStandardMaterial color={color} side={THREE.DoubleSide} />
+            <meshStandardMaterial
+              color={isRootHovered ? `#${color}` : baseColor}
+              side={THREE.DoubleSide}
+            />
           </mesh>
           <lineSegments>
             <edgesGeometry args={[csgGeometry]} />
@@ -234,9 +363,7 @@ export default function ShapeRenderer({
       for (const child of children) {
         const isHole =
           Math.abs(child.height) < 0.01 || !isOutwardExtrusion(child);
-        if (isHole) {
-          holes.push(child);
-        }
+        if (isHole) holes.push(child);
         findHoles(child.id);
       }
     };
@@ -244,28 +371,50 @@ export default function ShapeRenderer({
     return holes;
   };
 
-  const additionChildren = shapes.filter(
-    (s) => s.parentId && Math.abs(s.height) >= 0.01 && isOutwardExtrusion(s),
+  const getDescendantChildren = (parentId: string) => {
+    const result: DrawnShape[] = [];
+    const find = (pid: string) => {
+      const children = shapes.filter((s) => s.parentId === pid);
+      for (const child of children) {
+        result.push(child);
+        find(child.id);
+      }
+    };
+    find(parentId);
+    return result;
+  };
+
+  // Dobudówki — dzieci rect (nie na cube entity, bo te obsługujemy osobno)
+  const cubeEntityIds = new Set(
+    rootShapes
+      .filter((s) => s.type === "sphere" && s.entityShape === "cube")
+      .map((s) => s.id),
   );
 
-  // Osobna grupa dla sfer
-  const sphereShapes = shapes.filter((s) => s.type === "sphere");
+  const additionChildren = shapes.filter(
+    (s) =>
+      s.parentId &&
+      Math.abs(s.height) >= 0.01 &&
+      isOutwardExtrusion(s) &&
+      !cubeEntityIds.has(s.parentId!),
+  );
+
+  const entityShapes = rootShapes.filter((s) => s.type === "sphere");
+  const rectRootShapes = rootShapes.filter((s) => s.type === "rect");
 
   return (
     <group>
-      {/* Renderowanie brył bazowych (nie-sfery) */}
-      {rootShapes
-        .filter((s) => s.type !== "sphere")
-        .map((root) => (
-          <CSGShape
-            key={root.id}
-            rootShape={root}
-            holeChildren={getDescendantHoles(root)}
-            hoveredShapeId={hoveredShapeId}
-          />
-        ))}
+      {/* Bryły rect bazowe */}
+      {rectRootShapes.map((root) => (
+        <CSGShape
+          key={root.id}
+          rootShape={root}
+          holeChildren={getDescendantHoles(root)}
+          hoveredShapeId={hoveredShapeId}
+        />
+      ))}
 
-      {/* Renderowanie brył dobudowanych (niebieski obrys) */}
+      {/* Dobudówki na rect */}
       {additionChildren.map((child) => (
         <CSGShape
           key={child.id}
@@ -276,14 +425,57 @@ export default function ShapeRenderer({
         />
       ))}
 
-      {/* Renderowanie wszystkich sfer */}
-      {sphereShapes.map((sphere) => (
-        <SphereShape
-          key={sphere.id}
-          shape={sphere}
-          hoveredShapeId={hoveredShapeId}
-        />
-      ))}
+      {/* Sfery (kule) */}
+      {entityShapes
+        .filter((s) => s.entityShape !== "cube")
+        .map((entity) => (
+          <SphereShape
+            key={entity.id}
+            shape={entity}
+            hoveredShapeId={hoveredShapeId}
+          />
+        ))}
+
+      {/* Sześciany-entity z obsługą CSG */}
+      {entityShapes
+        .filter((s) => s.entityShape === "cube")
+        .map((entity) => {
+          const children = getDescendantChildren(entity.id);
+          const holes = children.filter(
+            (c) => Math.abs(c.height) < 0.01 || !isOutwardExtrusion(c),
+          );
+          const additions = children.filter(
+            (c) => Math.abs(c.height) >= 0.01 && isOutwardExtrusion(c),
+          );
+
+          return (
+            <group key={entity.id}>
+              {holes.length > 0 ? (
+                <CubeEntityCSG
+                  shape={entity}
+                  holeChildren={holes}
+                  hoveredShapeId={hoveredShapeId}
+                />
+              ) : (
+                <CubeEntitySimple
+                  shape={entity}
+                  hoveredShapeId={hoveredShapeId}
+                />
+              )}
+
+              {/* Dobudówki na sześcianie */}
+              {additions.map((add) => (
+                <CSGShape
+                  key={add.id}
+                  rootShape={add}
+                  holeChildren={getDescendantHoles(add)}
+                  hoveredShapeId={hoveredShapeId}
+                  outlineColor="#2266ff"
+                />
+              ))}
+            </group>
+          );
+        })}
     </group>
   );
 }

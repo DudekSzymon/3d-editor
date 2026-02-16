@@ -128,6 +128,45 @@ export default function useShapesManager() {
     );
   };
 
+  /** Usuwanie kształtu (i jego dzieci) */
+  const handleDeleteShape = (shapeId: string) => {
+    const idsToDelete = new Set<string>();
+    idsToDelete.add(shapeId);
+
+    // Rekurencyjnie zbierz dzieci
+    const collectChildren = (parentId: string) => {
+      for (const s of shapes) {
+        if (s.parentId === parentId && !idsToDelete.has(s.id)) {
+          idsToDelete.add(s.id);
+          collectChildren(s.id);
+        }
+      }
+    };
+    collectChildren(shapeId);
+
+    const newShapes = shapes.filter((s) => !idsToDelete.has(s.id));
+    saveToHistory(newShapes);
+  };
+
+  /** Zmiana koloru kształtu */
+  const handleColorChange = (shapeId: string, color: string) => {
+    const newShapes = shapes.map((s) =>
+      s.id === shapeId ? { ...s, color } : s,
+    );
+    saveToHistory(newShapes);
+  };
+
+  /** Zmiana kształtu entity (sphere ↔ cube) */
+  const handleEntityShapeChange = (
+    shapeId: string,
+    entityShape: "sphere" | "cube",
+  ) => {
+    const newShapes = shapes.map((s) =>
+      s.id === shapeId ? { ...s, entityShape } : s,
+    );
+    saveToHistory(newShapes);
+  };
+
   const handleHeightApply = (
     editingShapeId: string,
     updates: {
@@ -299,6 +338,9 @@ export default function useShapesManager() {
     handleShapesCommit,
     handleToggleShapeVisibility,
     handleHeightApply,
+    handleDeleteShape,
+    handleColorChange,
+    handleEntityShapeChange,
     rescaleShapes,
     handleMoveShapeToLayer,
     migrateShapesToDefaultLayer,
