@@ -60,7 +60,7 @@ function getDimensionsLabel(shape: DrawnShape, cs: number): string {
   if (shape.type === "measurement") {
     const dist = (shape.measureDistance || 0) * cs;
     if (dist >= 1000) return `${(dist / 1000).toFixed(2)} m`;
-    if (dist >= 10) return `${dist.toFixed(1)} mm`;
+    if (dist >= 10) return `${dist.toFixed(2)} mm`;
     return `${dist.toFixed(2)} mm`;
   }
   const { width, depth, absHeight } = getShapeBoxParams(shape);

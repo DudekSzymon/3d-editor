@@ -50,7 +50,7 @@ function MeasurementLine({
   // Formatowanie wartości
   const formatDistance = (mm: number): string => {
     if (mm >= 1000) return `${(mm / 1000).toFixed(2)} m`;
-    if (mm >= 10) return `${mm.toFixed(1)} mm`;
+    if (mm >= 10) return `${mm.toFixed(2)} mm`;
     return `${mm.toFixed(2)} mm`;
   };
 
