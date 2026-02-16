@@ -8,6 +8,7 @@ import ImageInfoPanel from "./UI/ImageInfoPanel";
 import CanvasScaleModal from "./UI/CanvasScaleModal";
 import CanvasSettingsModal from "./UI/CanvasSettingsModal";
 import HeightInputPanel from "./UI/HeightInputPanel";
+import MeasurementEditPanel from "./UI/MeasurementEditPanel";
 import LayersPanel from "./UI/LayersPanel";
 import SceneContent from "./Editor/SceneContent";
 
@@ -44,7 +45,7 @@ export default function Canvas3D() {
         setMode("VIEW");
         setEditingShapeId(null);
       }
-      // Delete/Backspace — usuń zaznaczony obiekt
+      // Delete/Backspace — usuń zaznaczony obiekt (w tym wymiar)
       if (
         (e.key === "Delete" || e.key === "Backspace") &&
         editingShapeId &&
@@ -120,6 +121,14 @@ export default function Canvas3D() {
     setMode("EXTRUDE");
   };
 
+  /** Zmiana nazwy wymiaru */
+  const handleRenameMeasurement = (name: string) => {
+    if (!editingShapeId) return;
+    shapesManager.handleShapeUpdate(editingShapeId, { name });
+    // Commit aby nazwa była w historii
+    shapesManager.handleShapesCommit();
+  };
+
   const editingShape = editingShapeId
     ? shapesManager.shapes.find((s) => s.id === editingShapeId)
     : null;
@@ -136,7 +145,7 @@ export default function Canvas3D() {
       case "CALIBRATE":
         return "KALIBRACJA: Kliknij dwa punkty na obrazku, aby zmierzyć odległość referencyjną";
       case "MEASURE":
-        return "WYMIAROWANIE: Kliknij punkt początkowy, potem punkt końcowy — wymiar zostanie na płótnie";
+        return "WYMIAROWANIE: Kliknij punkt początkowy, potem końcowy";
       default:
         return "";
     }
@@ -217,6 +226,7 @@ export default function Canvas3D() {
         currentCanvasScale={imageScale.canvasScale}
       />
 
+      {/* Panel edycji kształtu (rect / sphere) */}
       {editingShape && editingShape.type !== "measurement" && (
         <HeightInputPanel
           currentHeight={editingShape.height}
@@ -236,6 +246,17 @@ export default function Canvas3D() {
             shapesManager.handleShapeMove(editingShape.id, dx, dy, dz)
           }
           canvasScale={imageScale.canvasScale}
+        />
+      )}
+
+      {/* Panel edycji wymiaru (measurement) */}
+      {editingShape && editingShape.type === "measurement" && (
+        <MeasurementEditPanel
+          shape={editingShape}
+          canvasScale={imageScale.canvasScale}
+          onRename={handleRenameMeasurement}
+          onDelete={handleDeleteSelected}
+          onClose={() => setEditingShapeId(null)}
         />
       )}
 

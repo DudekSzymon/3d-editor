@@ -16,6 +16,7 @@ import {
 } from "./sphereHandlers";
 import {
   getHoveredShapeId,
+  getClickedMeasurementId,
   getFaceHit,
   getSnappedPosition,
   getDrawingPoint,
@@ -368,20 +369,46 @@ export default function InteractionManager({
   };
 
   const handlePointerDown = (e: any) => {
-    if (mode === "VIEW" || e.button !== 0) return;
+    if (e.button !== 0) return;
+
+    // === VIEW MODE — klik na wymiar do edycji/usuwania ===
+    if (mode === "VIEW") {
+      const clickedMeasure = getClickedMeasurementId(
+        raycaster,
+        camera,
+        pointer,
+        visibleShapes,
+      );
+      if (clickedMeasure) {
+        e.stopPropagation();
+        setEditingShapeId(clickedMeasure);
+      } else if (editingShapeId) {
+        // Kliknięto poza wymiarem — odznacz
+        setEditingShapeId(null);
+      }
+      return;
+    }
+
     e.stopPropagation();
 
-    // === MEASURE MODE ===
+    // === MEASURE MODE — BEZ detekcji kliknięcia na istniejący wymiar ===
+    // Wymiary edytujemy/usuwamy wyłącznie z trybu VIEW lub panelu warstw.
     if (mode === "MEASURE") {
+      // Odznacz wymiar jeśli był zaznaczony
+      if (editingShapeId) {
+        const editingShape = shapes.find((s) => s.id === editingShapeId);
+        if (editingShape?.type === "measurement") {
+          setEditingShapeId(null);
+        }
+      }
+
       const pt = getMeasurePoint();
       if (!pt) return;
 
       if (!measureStartPoint) {
-        // Pierwszy klik — ustaw punkt startowy
         setMeasureStartPoint(pt.clone());
         setMeasureCurrentPoint(pt.clone());
       } else {
-        // Drugi klik — utwórz wymiar
         const distance = measureStartPoint.distanceTo(pt);
         if (distance > 0.1) {
           const measureShape: DrawnShape = {
@@ -403,7 +430,6 @@ export default function InteractionManager({
           };
           onShapeAdd(measureShape);
         }
-        // Resetuj
         setMeasureStartPoint(null);
         setMeasureCurrentPoint(null);
       }
@@ -411,7 +437,6 @@ export default function InteractionManager({
     }
 
     if (mode === "PLACE_SPHERE") {
-      // Hover/interakcja — tylko na widocznych
       const hoveredId = getHoveredShapeId(
         raycaster,
         camera,
@@ -429,7 +454,6 @@ export default function InteractionManager({
         setEditingShapeId(hoveredId);
         setMouseDownPos({ x: pointer.x, y: pointer.y });
         setHasMoved(false);
-
         raycaster.setFromCamera(pointer, camera);
         const { boxArgs, center } = getShapeBoxParams(hoveredShape);
         const box = new THREE.Box3().setFromCenterAndSize(
@@ -500,7 +524,6 @@ export default function InteractionManager({
         lastSnapRef.current = null;
         setDragMode(null);
       } else {
-        // Hover — tylko widoczne
         const targetId = getHoveredShapeId(
           raycaster,
           camera,
@@ -602,7 +625,6 @@ export default function InteractionManager({
     if (mode === "DRAW_RECT" || mode === "CALIBRATE") {
       if (!startPoint) {
         if (mode === "DRAW_RECT") {
-          // Face hit — tylko na widocznych
           const faceHit = getFaceHit(raycaster, camera, pointer, visibleShapes);
           if (faceHit) {
             setDrawingFace(faceHit);
@@ -629,8 +651,8 @@ export default function InteractionManager({
             const commonProps = {
               id: Math.random().toString(36),
               type: "rect" as const,
-              name: "", // zostanie nadane w handleShapeAdd
-              layerId: "", // zostanie nadane w handleShapeAdd
+              name: "",
+              layerId: "",
               visible: true,
               height: 0,
             };
@@ -710,7 +732,7 @@ export default function InteractionManager({
   };
 
   const handlePointerUp = (e: any) => {
-    if (mode === "MEASURE") return; // Measure używa kliknięć, nie drag
+    if (mode === "MEASURE") return;
 
     if (mode === "PLACE_SPHERE") {
       if (editingShapeId && hasMoved && !placingSphereId) {
@@ -719,12 +741,7 @@ export default function InteractionManager({
         setHasMoved(false);
         return;
       }
-
-      const result = handleSpherePointerUp({
-        placingSphereId,
-        hasMoved,
-      });
-
+      const result = handleSpherePointerUp({ placingSphereId, hasMoved });
       switch (result.action) {
         case "COMMIT":
           onShapesCommit();

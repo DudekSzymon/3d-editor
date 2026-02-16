@@ -70,6 +70,62 @@ export const getHoveredShapeId = (
   return hits[0].id;
 };
 
+/**
+ * Znajduje ID wymiaru (measurement), na który kliknięto.
+ * Sprawdza odległość promienia kamery od odcinka wymiaru + od endpointów.
+ */
+export const getClickedMeasurementId = (
+  raycaster: THREE.Raycaster,
+  camera: THREE.Camera,
+  pointer: THREE.Vector2,
+  shapes: DrawnShape[],
+  clickThreshold: number = 8,
+): string | null => {
+  raycaster.setFromCamera(pointer, camera);
+
+  const measurements = shapes.filter(
+    (s) => s.type === "measurement" && s.visible,
+  );
+  if (measurements.length === 0) return null;
+
+  let closestId: string | null = null;
+  let closestDist = Infinity;
+
+  const _segStart = new THREE.Vector3();
+  const _segEnd = new THREE.Vector3();
+
+  for (const m of measurements) {
+    const ms = m.measureStart || [0, 0, 0];
+    const me = m.measureEnd || [0, 0, 0];
+    _segStart.set(ms[0], ms[1], ms[2]);
+    _segEnd.set(me[0], me[1], me[2]);
+
+    // Odległość promienia od odcinka wymiaru
+    const distSq = raycaster.ray.distanceSqToSegment(_segStart, _segEnd);
+    const dist = Math.sqrt(distSq);
+
+    if (dist < clickThreshold && dist < closestDist) {
+      closestDist = dist;
+      closestId = m.id;
+    }
+
+    // Endpointy — łatwiej kliknąć
+    const endpointThreshold = clickThreshold * 1.5;
+    const distToStart = raycaster.ray.distanceToPoint(_segStart);
+    if (distToStart < endpointThreshold && distToStart < closestDist) {
+      closestDist = distToStart;
+      closestId = m.id;
+    }
+    const distToEnd = raycaster.ray.distanceToPoint(_segEnd);
+    if (distToEnd < endpointThreshold && distToEnd < closestDist) {
+      closestDist = distToEnd;
+      closestId = m.id;
+    }
+  }
+
+  return closestId;
+};
+
 export const getFaceHit = (
   raycaster: THREE.Raycaster,
   camera: THREE.Camera,
