@@ -7,11 +7,16 @@ import {
 
 let structureCounter = 0;
 let entityCounter = 0;
+let measurementCounter = 0;
 
-function generateShapeName(type: "rect" | "sphere"): string {
+function generateShapeName(type: "rect" | "sphere" | "measurement"): string {
   if (type === "sphere") {
     entityCounter++;
     return `Kamera ${entityCounter}`;
+  }
+  if (type === "measurement") {
+    measurementCounter++;
+    return `Wymiar ${measurementCounter}`;
   }
   structureCounter++;
   return `Ściana ${structureCounter}`;
@@ -83,6 +88,24 @@ export default function useShapesManager() {
           };
         }
 
+        if (s.type === "measurement") {
+          const ms = s.measureStart || [0, 0, 0];
+          const me = s.measureEnd || [0, 0, 0];
+          return {
+            ...s,
+            measureStart: [ms[0] + dx, ms[1] + dy, ms[2] + dz] as [
+              number,
+              number,
+              number,
+            ],
+            measureEnd: [me[0] + dx, me[1] + dy, me[2] + dz] as [
+              number,
+              number,
+              number,
+            ],
+          };
+        }
+
         return {
           ...s,
           points: s.points.map((p) => [p[0] + dx, p[1] + dy, p[2] + dz]) as [
@@ -124,6 +147,9 @@ export default function useShapesManager() {
     if (shape.type === "sphere") {
       if (updates.radius !== undefined) updatedShape.radius = updates.radius;
       if (updates.center !== undefined) updatedShape.center = updates.center;
+    } else if (shape.type === "measurement") {
+      // Measurements nie mają edycji wysokości - pomijamy
+      return;
     } else {
       updatedShape.height = updates.height;
       updatedShape.baseY = updates.baseY;
@@ -207,6 +233,24 @@ export default function useShapesManager() {
               center[1] * ratio,
               center[2] * ratio,
             ] as [number, number, number],
+          };
+        }
+        if (s.type === "measurement") {
+          const ms = s.measureStart || [0, 0, 0];
+          const me = s.measureEnd || [0, 0, 0];
+          return {
+            ...s,
+            measureStart: [ms[0] * ratio, ms[1] * ratio, ms[2] * ratio] as [
+              number,
+              number,
+              number,
+            ],
+            measureEnd: [me[0] * ratio, me[1] * ratio, me[2] * ratio] as [
+              number,
+              number,
+              number,
+            ],
+            measureDistance: (s.measureDistance || 0) * ratio,
           };
         }
         return {

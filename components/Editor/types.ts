@@ -5,7 +5,8 @@ export type EditorMode =
   | "CALIBRATE"
   | "DRAW_RECT"
   | "EXTRUDE"
-  | "PLACE_SPHERE";
+  | "PLACE_SPHERE"
+  | "MEASURE";
 
 export type ShapeOrientation = "xz" | "xy" | "yz";
 
@@ -35,11 +36,11 @@ export function createDefaultLayers(): Layer[] {
 
 export interface DrawnShape {
   id: string;
-  type: "rect" | "sphere";
+  type: "rect" | "sphere" | "measurement";
   name: string; // nazwa obiektu (np. "Ściana 1", "Kamera 2")
   layerId: string; // ID warstwy, domyślnie DEFAULT_LAYER_ID
   visible: boolean; // widoczność pojedynczego obiektu
-  points: [number, number, number][]; // 4 narożniki prostokąta bazowego (tylko dla rect)
+  points: [number, number, number][]; // 4 narożniki prostokąta bazowego (tylko dla rect) / 2 punkty dla measurement
   height: number; // Wysokość/głębokość wyciągnięcia (dla rect)
   baseY: number; // Dla 'xz': pozycja Y podstawy (dla rect)
 
@@ -52,6 +53,11 @@ export interface DrawnShape {
   orientation?: ShapeOrientation; // 'xz' = poziomo, 'xy' = przód/tył, 'yz' = lewo/prawo
   faceOffset?: number; // Pozycja ściany wzdłuż osi normalnej
   faceDirection?: number; // +1 = top/front/right, -1 = bottom/back/left
+
+  // Parametry dla wymiarowania (measurement)
+  measureStart?: [number, number, number]; // Punkt startowy wymiaru
+  measureEnd?: [number, number, number]; // Punkt końcowy wymiaru
+  measureDistance?: number; // Zmierzona odległość w scene units
 }
 
 export function isOutwardExtrusion(shape: DrawnShape): boolean {
@@ -74,6 +80,28 @@ export function getShapeBoxParams(shape: DrawnShape) {
       width: r * 2,
       depth: r * 2,
       absHeight: r * 2,
+    };
+  }
+
+  if (shape.type === "measurement") {
+    const s = shape.measureStart || [0, 0, 0];
+    const e = shape.measureEnd || [0, 0, 0];
+    const cx = (s[0] + e[0]) / 2;
+    const cy = (s[1] + e[1]) / 2;
+    const cz = (s[2] + e[2]) / 2;
+    const dx = Math.abs(s[0] - e[0]);
+    const dy = Math.abs(s[1] - e[1]);
+    const dz = Math.abs(s[2] - e[2]);
+    return {
+      boxArgs: [Math.max(dx, 0.01), Math.max(dy, 0.01), Math.max(dz, 0.01)] as [
+        number,
+        number,
+        number,
+      ],
+      center: { x: cx, y: cy, z: cz },
+      width: dx,
+      depth: dz,
+      absHeight: dy,
     };
   }
 

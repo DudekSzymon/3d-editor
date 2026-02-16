@@ -80,6 +80,12 @@ export default function Canvas3D() {
   };
 
   const handleSelectShapeFromPanel = (shapeId: string) => {
+    const shape = shapesManager.shapes.find((s) => s.id === shapeId);
+    if (shape?.type === "measurement") {
+      // Wymiary nie mają panelu edycji — po prostu zaznacz
+      setEditingShapeId(shapeId);
+      return;
+    }
     setEditingShapeId(shapeId);
     setMode("EXTRUDE");
   };
@@ -99,6 +105,8 @@ export default function Canvas3D() {
         return "KULKA: Kliknij aby umieścić kulkę, przeciągnij aby zmienić rozmiar";
       case "CALIBRATE":
         return "KALIBRACJA: Kliknij dwa punkty na obrazku, aby zmierzyć odległość referencyjną";
+      case "MEASURE":
+        return "WYMIAROWANIE: Kliknij punkt początkowy, potem punkt końcowy — wymiar zostanie na płótnie";
       default:
         return "";
     }
@@ -141,6 +149,7 @@ export default function Canvas3D() {
           activeExtrudeId={activeExtrudeId}
           setActiveExtrudeId={setActiveExtrudeId}
           onShapesCommit={shapesManager.handleShapesCommit}
+          canvasScale={imageScale.canvasScale}
         />
       </Canvas>
 
@@ -178,7 +187,7 @@ export default function Canvas3D() {
         currentCanvasScale={imageScale.canvasScale}
       />
 
-      {editingShape && (
+      {editingShape && editingShape.type !== "measurement" && (
         <HeightInputPanel
           currentHeight={editingShape.height}
           currentBaseY={editingShape.baseY || 0}

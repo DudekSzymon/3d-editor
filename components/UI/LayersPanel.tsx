@@ -12,6 +12,7 @@ import {
   FaChevronRight,
   FaTimes,
   FaLayerGroup,
+  FaRulerHorizontal,
 } from "react-icons/fa";
 import {
   DrawnShape,
@@ -42,6 +43,11 @@ function getPositionLabel(shape: DrawnShape, cs: number): string {
     const c = shape.center || [0, 0, 0];
     return `(${(c[0] * cs).toFixed(0)}, ${(c[1] * cs).toFixed(0)}, ${(c[2] * cs).toFixed(0)})`;
   }
+  if (shape.type === "measurement") {
+    const s = shape.measureStart || [0, 0, 0];
+    const e = shape.measureEnd || [0, 0, 0];
+    return `(${(s[0] * cs).toFixed(0)},${(s[1] * cs).toFixed(0)},${(s[2] * cs).toFixed(0)})→(${(e[0] * cs).toFixed(0)},${(e[1] * cs).toFixed(0)},${(e[2] * cs).toFixed(0)})`;
+  }
   const { center } = getShapeBoxParams(shape);
   return `(${(center.x * cs).toFixed(0)}, ${(center.y * cs).toFixed(0)}, ${(center.z * cs).toFixed(0)})`;
 }
@@ -51,12 +57,21 @@ function getDimensionsLabel(shape: DrawnShape, cs: number): string {
   if (shape.type === "sphere") {
     return `r=${((shape.radius || 10) * cs).toFixed(1)}`;
   }
+  if (shape.type === "measurement") {
+    const dist = (shape.measureDistance || 0) * cs;
+    if (dist >= 1000) return `${(dist / 1000).toFixed(2)} m`;
+    if (dist >= 10) return `${dist.toFixed(1)} mm`;
+    return `${dist.toFixed(2)} mm`;
+  }
   const { width, depth, absHeight } = getShapeBoxParams(shape);
   return `${(width * cs).toFixed(0)}×${(depth * cs).toFixed(0)}×${(absHeight * cs).toFixed(0)}`;
 }
 
 /** Ikonka typu */
-function ShapeIcon({ type }: { type: "rect" | "sphere" }) {
+function ShapeIcon({ type }: { type: "rect" | "sphere" | "measurement" }) {
+  if (type === "measurement") {
+    return <FaRulerHorizontal size={10} className="text-orange-500 shrink-0" />;
+  }
   return type === "sphere" ? (
     <FaCircle size={10} className="text-red-500 shrink-0" />
   ) : (
@@ -102,7 +117,9 @@ function ShapeItem({
           {shape.name}
         </div>
         <div className="text-[9px] text-gray-400 font-mono">
-          {getPositionLabel(shape, cs)} · {getDimensionsLabel(shape, cs)}
+          {shape.type === "measurement"
+            ? getDimensionsLabel(shape, cs)
+            : `${getPositionLabel(shape, cs)} · ${getDimensionsLabel(shape, cs)}`}
         </div>
       </div>
       {/* Toggle widoczności per obiekt */}
@@ -129,6 +146,7 @@ function LayerSection({
   layer,
   structures,
   entities,
+  measurements,
   cs,
   editingShapeId,
   onSelectShape,
@@ -144,6 +162,7 @@ function LayerSection({
   layer: Layer;
   structures: DrawnShape[];
   entities: DrawnShape[];
+  measurements: DrawnShape[];
   cs: number;
   editingShapeId: string | null;
   onSelectShape: (id: string) => void;
@@ -172,7 +191,7 @@ function LayerSection({
     setIsEditing(false);
   };
 
-  const totalCount = structures.length + entities.length;
+  const totalCount = structures.length + entities.length + measurements.length;
 
   return (
     <div
@@ -302,7 +321,7 @@ function LayerSection({
 
           {/* Entity (sphere) */}
           {entities.length > 0 && (
-            <div>
+            <div className="mb-1">
               <div className="flex items-center gap-1 px-2 py-1">
                 <FaCircle size={8} className="text-red-400" />
                 <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">
@@ -310,6 +329,29 @@ function LayerSection({
                 </span>
               </div>
               {entities.map((s) => (
+                <ShapeItem
+                  key={s.id}
+                  shape={s}
+                  cs={cs}
+                  isSelected={editingShapeId === s.id}
+                  onSelect={() => onSelectShape(s.id)}
+                  onToggleVisibility={() => onToggleShapeVisibility(s.id)}
+                  onDragStart={onDragStart}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Wymiary (measurement) */}
+          {measurements.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1 px-2 py-1">
+                <FaRulerHorizontal size={8} className="text-orange-400" />
+                <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">
+                  Wymiary ({measurements.length})
+                </span>
+              </div>
+              {measurements.map((s) => (
                 <ShapeItem
                   key={s.id}
                   shape={s}
@@ -385,6 +427,7 @@ export default function LayersPanel({
 
   const structureCount = shapes.filter((s) => s.type === "rect").length;
   const entityCount = shapes.filter((s) => s.type === "sphere").length;
+  const measureCount = shapes.filter((s) => s.type === "measurement").length;
 
   return (
     <div className="absolute top-0 right-0 w-72 h-full bg-white border-l border-gray-200 shadow-xl z-40 flex flex-col">
@@ -396,7 +439,7 @@ export default function LayersPanel({
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[10px] text-gray-400">
-            {structureCount}S · {entityCount}O
+            {structureCount}S · {entityCount}O · {measureCount}W
           </span>
           <button
             onClick={onClose}
@@ -452,6 +495,9 @@ export default function LayersPanel({
           const layerShapes = shapes.filter((s) => s.layerId === layer.id);
           const structures = layerShapes.filter((s) => s.type === "rect");
           const entities = layerShapes.filter((s) => s.type === "sphere");
+          const measurements = layerShapes.filter(
+            (s) => s.type === "measurement",
+          );
 
           return (
             <LayerSection
@@ -459,6 +505,7 @@ export default function LayersPanel({
               layer={layer}
               structures={structures}
               entities={entities}
+              measurements={measurements}
               cs={canvasScale}
               editingShapeId={editingShapeId}
               onSelectShape={onSelectShape}
@@ -481,7 +528,7 @@ export default function LayersPanel({
           <span>{layers.length} warstw</span>
           <span>
             {shapes.length} obiektów ({structureCount} struktur, {entityCount}{" "}
-            obiektów)
+            obiektów, {measureCount} wymiarów)
           </span>
         </div>
       </div>

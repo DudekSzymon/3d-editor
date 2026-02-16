@@ -31,6 +31,9 @@ export const getHoveredShapeId = (
   const hits: HitInfo[] = [];
 
   for (const shape of shapes) {
+    // Pomijamy wymiary w hover
+    if (shape.type === "measurement") continue;
+
     const { boxArgs, center } = getShapeBoxParams(shape);
     const isHole = !!shape.parentId;
     const hMargin = isHole ? 1.0 : 0.5;
@@ -81,8 +84,8 @@ export const getFaceHit = (
   let closestPoint: THREE.Vector3 | null = null;
 
   for (const shape of shapes) {
-    // Pomijamy sfery - tylko prostokąty z wysokością
-    if (shape.type === "sphere") continue;
+    // Pomijamy sfery i wymiary - tylko prostokąty z wysokością
+    if (shape.type === "sphere" || shape.type === "measurement") continue;
     if (!shape.height || Math.abs(shape.height) < 0.01) continue;
 
     const { boxArgs, center } = getShapeBoxParams(shape);
@@ -192,6 +195,24 @@ export const getSnappedPosition = (
       if (dist < snapThreshold && dist < closestDist) {
         closestDist = dist;
         closestPt = centerPt;
+      }
+      continue;
+    }
+
+    // Snapowanie do punktów wymiaru
+    if (shape.type === "measurement") {
+      const ms = shape.measureStart || [0, 0, 0];
+      const me = shape.measureEnd || [0, 0, 0];
+      const snapPoints = [
+        new THREE.Vector3(ms[0], ms[1], ms[2]),
+        new THREE.Vector3(me[0], me[1], me[2]),
+      ];
+      for (const sp of snapPoints) {
+        const dist = sp.distanceTo(rawPoint);
+        if (dist < snapThreshold && dist < closestDist) {
+          closestDist = dist;
+          closestPt = sp.clone();
+        }
       }
       continue;
     }

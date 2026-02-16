@@ -3,7 +3,12 @@
 import { useState, useRef, useMemo, useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import * as THREE from "three";
-import { EditorMode, DrawnShape, getShapeBoxParams } from "./types";
+import {
+  EditorMode,
+  DrawnShape,
+  DEFAULT_LAYER_ID,
+  getShapeBoxParams,
+} from "./types";
 import {
   handleSpherePointerDown,
   handleSpherePointerUp,
@@ -32,6 +37,7 @@ interface InteractionManagerProps {
   activeExtrudeId: string | null;
   setActiveExtrudeId: (id: string | null) => void;
   onShapesCommit: () => void;
+  canvasScale: number;
 }
 
 type DragMode = "HEIGHT" | "SIDE_X" | "SIDE_Z" | null;
@@ -50,6 +56,7 @@ export default function InteractionManager({
   activeExtrudeId,
   setActiveExtrudeId,
   onShapesCommit,
+  canvasScale,
 }: InteractionManagerProps) {
   const { camera, raycaster, pointer } = useThree();
 
@@ -79,6 +86,12 @@ export default function InteractionManager({
   const [sphereStartPoint, setSphereStartPoint] =
     useState<THREE.Vector3 | null>(null);
 
+  // Stan dla MEASURE
+  const [measureStartPoint, setMeasureStartPoint] =
+    useState<THREE.Vector3 | null>(null);
+  const [measureCurrentPoint, setMeasureCurrentPoint] =
+    useState<THREE.Vector3 | null>(null);
+
   useEffect(() => {
     setStartPoint(null);
     setCurrentPoint(null);
@@ -91,6 +104,8 @@ export default function InteractionManager({
     setDragMode(null);
     setPlacingSphereId(null);
     setSphereStartPoint(null);
+    setMeasureStartPoint(null);
+    setMeasureCurrentPoint(null);
   }, [mode, setActiveExtrudeId]);
 
   const invisiblePlaneGeo = useMemo(
@@ -102,11 +117,57 @@ export default function InteractionManager({
     [],
   );
 
+  /** Pobiera punkt z raycasta — uwzględnia ściany brył i podłogę */
+  const getMeasurePoint = (): THREE.Vector3 | null => {
+    // Najpierw sprawdź czy trafiliśmy w ścianę bryły
+    const faceHit = getFaceHit(raycaster, camera, pointer, visibleShapes);
+    if (faceHit) {
+      const pt = faceHit.point.clone();
+      return isSnapEnabled ? getSnappedPosition(pt, shapes).point : pt;
+    }
+
+    // Sprawdź trafienie w bounding box kształtów (top/bottom)
+    raycaster.setFromCamera(pointer, camera);
+    for (const shape of visibleShapes) {
+      if (shape.type === "measurement") continue;
+      const { boxArgs, center } = getShapeBoxParams(shape);
+      const box = new THREE.Box3().setFromCenterAndSize(
+        new THREE.Vector3(center.x, center.y, center.z),
+        new THREE.Vector3(boxArgs[0] + 0.5, boxArgs[1] + 0.5, boxArgs[2] + 0.5),
+      );
+      const intersection = new THREE.Vector3();
+      if (raycaster.ray.intersectBox(box, intersection)) {
+        return isSnapEnabled
+          ? getSnappedPosition(intersection, shapes).point
+          : intersection;
+      }
+    }
+
+    // Fallback na ground plane
+    const rawPoint = getDrawingPoint(raycaster, camera, pointer, virtualPlane);
+    if (!rawPoint) return null;
+    return isSnapEnabled
+      ? getSnappedPosition(rawPoint, shapes).point
+      : rawPoint;
+  };
+
   const handlePointerMove = () => {
     if (mouseDownPos && !hasMoved) {
       const deltaX = Math.abs(pointer.x - mouseDownPos.x);
       const deltaY = Math.abs(pointer.y - mouseDownPos.y);
       if (deltaX > 0.01 || deltaY > 0.01) setHasMoved(true);
+    }
+
+    // === MEASURE MODE ===
+    if (mode === "MEASURE") {
+      const pt = getMeasurePoint();
+      if (pt) {
+        setSnappedPoint(pt);
+        if (measureStartPoint) {
+          setMeasureCurrentPoint(pt);
+        }
+      }
+      return;
     }
 
     if (
@@ -309,6 +370,45 @@ export default function InteractionManager({
   const handlePointerDown = (e: any) => {
     if (mode === "VIEW" || e.button !== 0) return;
     e.stopPropagation();
+
+    // === MEASURE MODE ===
+    if (mode === "MEASURE") {
+      const pt = getMeasurePoint();
+      if (!pt) return;
+
+      if (!measureStartPoint) {
+        // Pierwszy klik — ustaw punkt startowy
+        setMeasureStartPoint(pt.clone());
+        setMeasureCurrentPoint(pt.clone());
+      } else {
+        // Drugi klik — utwórz wymiar
+        const distance = measureStartPoint.distanceTo(pt);
+        if (distance > 0.1) {
+          const measureShape: DrawnShape = {
+            id: Math.random().toString(36),
+            type: "measurement",
+            name: "",
+            layerId: DEFAULT_LAYER_ID,
+            visible: true,
+            points: [],
+            height: 0,
+            baseY: 0,
+            measureStart: [
+              measureStartPoint.x,
+              measureStartPoint.y,
+              measureStartPoint.z,
+            ],
+            measureEnd: [pt.x, pt.y, pt.z],
+            measureDistance: distance,
+          };
+          onShapeAdd(measureShape);
+        }
+        // Resetuj
+        setMeasureStartPoint(null);
+        setMeasureCurrentPoint(null);
+      }
+      return;
+    }
 
     if (mode === "PLACE_SPHERE") {
       // Hover/interakcja — tylko na widocznych
@@ -610,6 +710,8 @@ export default function InteractionManager({
   };
 
   const handlePointerUp = (e: any) => {
+    if (mode === "MEASURE") return; // Measure używa kliknięć, nie drag
+
     if (mode === "PLACE_SPHERE") {
       if (editingShapeId && hasMoved && !placingSphereId) {
         onShapesCommit();
@@ -670,6 +772,9 @@ export default function InteractionManager({
       onPointerMove={handlePointerMove}
       onPointerDown={handlePointerDown}
       onPointerUp={handlePointerUp}
+      measureStartPoint={measureStartPoint}
+      measureCurrentPoint={measureCurrentPoint}
+      canvasScale={canvasScale}
     />
   );
 }

@@ -13,6 +13,7 @@ import {
 import Axes from "./Axes";
 import BackgroundPlane from "./BackgroundPlane";
 import ShapeRenderer from "./ShapeRenderer";
+import MeasurementRenderer from "./MeasurementRenderer";
 import InteractionManager from "./InteractionManager";
 import { EditorMode, DrawnShape, BackgroundImageData } from "./types";
 
@@ -33,6 +34,7 @@ export interface SceneContentProps {
   activeExtrudeId: string | null;
   setActiveExtrudeId: (id: string | null) => void;
   onShapesCommit: () => void;
+  canvasScale: number;
 }
 
 export default function SceneContent({
@@ -52,6 +54,7 @@ export default function SceneContent({
   activeExtrudeId,
   setActiveExtrudeId,
   onShapesCommit,
+  canvasScale,
 }: SceneContentProps) {
   const { camera, controls } = useThree();
 
@@ -66,6 +69,12 @@ export default function SceneContent({
       }
     });
   }, [controls, camera, onResetReady]);
+
+  // Rozdziel kształty na zwykłe i wymiary
+  const nonMeasureShapes = visibleShapes.filter(
+    (s) => s.type !== "measurement",
+  );
+  const measureShapes = visibleShapes.filter((s) => s.type === "measurement");
 
   return (
     <>
@@ -92,13 +101,19 @@ export default function SceneContent({
 
       <Axes />
       {backgroundImage && (
-        <BackgroundPlane data={backgroundImage} shapes={visibleShapes} />
+        <BackgroundPlane data={backgroundImage} shapes={nonMeasureShapes} />
       )}
 
       <ShapeRenderer
-        shapes={visibleShapes}
+        shapes={nonMeasureShapes}
         hoveredShapeId={hoveredShapeId}
         activeExtrudeId={activeExtrudeId}
+      />
+
+      <MeasurementRenderer
+        measurements={measureShapes}
+        canvasScale={canvasScale}
+        hoveredMeasureId={hoveredShapeId}
       />
 
       <InteractionManager
@@ -115,6 +130,7 @@ export default function SceneContent({
         activeExtrudeId={activeExtrudeId}
         setActiveExtrudeId={setActiveExtrudeId}
         onShapesCommit={onShapesCommit}
+        canvasScale={canvasScale}
       />
 
       <OrbitControls
